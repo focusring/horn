@@ -16,7 +16,10 @@ async fn pick_and_validate(app: tauri::AppHandle) -> serde_json::Value {
         .add_filter("PDF", &["pdf"])
         .set_title("Select PDF files")
         .pick_files(move |files| {
-            eprintln!("[horn] dialog callback fired, files: {:?}", files.as_ref().map(|f| f.len()));
+            eprintln!(
+                "[horn] dialog callback fired, files: {:?}",
+                files.as_ref().map(|f| f.len())
+            );
             let _ = tx.send(files);
         });
 

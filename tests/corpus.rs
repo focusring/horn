@@ -68,11 +68,7 @@ fn reference_suite_all_compliant() {
         failures.join("\n")
     );
 
-    eprintln!(
-        "Reference suite: {}/{} compliant ✓",
-        pdfs.len(),
-        pdfs.len()
-    );
+    eprintln!("Reference suite: {}/{} compliant ✓", pdfs.len(), pdfs.len());
 }
 
 // =============================================================================
@@ -260,7 +256,11 @@ fn pdfcheck_pass_files() {
         failures.join("\n")
     );
 
-    eprintln!("pdfcheck pass files: {}/{} compliant ✓", pass_files.len(), pass_files.len());
+    eprintln!(
+        "pdfcheck pass files: {}/{} compliant ✓",
+        pass_files.len(),
+        pass_files.len()
+    );
 }
 
 #[test]
@@ -361,7 +361,10 @@ fn coverage_baseline() {
         ua1_fail.len(),
         ua1_fail_detected as f64 / ua1_fail.len().max(1) as f64 * 100.0
     );
-    eprintln!("║ Checks per file:  {:<3}                         ║", check_count);
+    eprintln!(
+        "║ Checks per file:  {:<3}                         ║",
+        check_count
+    );
     eprintln!("╚══════════════════════════════════════════════╝\n");
 
     // =========================================================================
@@ -395,17 +398,20 @@ fn coverage_baseline() {
     assert!(
         ref_compliant >= 10,
         "Reference suite regression: {}/{} compliant (baseline: 10/10)",
-        ref_compliant, ref_pdfs.len()
+        ref_compliant,
+        ref_pdfs.len()
     );
     assert!(
         ua1_pass_compliant >= 139,
         "UA-1 pass rate regression: {}/{} (baseline: 139/141)",
-        ua1_pass_compliant, ua1_pass.len()
+        ua1_pass_compliant,
+        ua1_pass.len()
     );
     assert!(
         ua1_fail_detected >= 126,
         "UA-1 fail detection regression: {}/{} (baseline: 126/155)",
-        ua1_fail_detected, ua1_fail.len()
+        ua1_fail_detected,
+        ua1_fail.len()
     );
     assert!(
         check_count >= 33,

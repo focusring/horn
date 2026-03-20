@@ -1,7 +1,7 @@
 use crate::model::Standard;
-use anyhow::Result;
 #[cfg(not(target_arch = "wasm32"))]
 use anyhow::Context;
+use anyhow::Result;
 use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
