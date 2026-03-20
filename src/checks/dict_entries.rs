@@ -6,7 +6,7 @@ use anyhow::Result;
 /// Checkpoint 07: Dictionary entry validation + structure integrity.
 ///
 /// Validates structural requirements from ISO 14289-1 section 7.1:
-/// - 07-001: /ParentTree must exist in StructTreeRoot
+/// - 07-001: /`ParentTree` must exist in `StructTreeRoot`
 /// - 07-002: MarkInfo/Suspects must not be true
 /// - 07-003: Structure elements with non-standard types must have role map entries
 pub struct DictEntryChecks;
@@ -35,68 +35,58 @@ impl Check for DictEntryChecks {
     }
 }
 
-/// 07-001: StructTreeRoot must contain a /ParentTree entry, and the ParentTree
+/// 07-001: `StructTreeRoot` must contain a /`ParentTree` entry, and the `ParentTree`
 /// must cover all pages that have structured content.
 ///
-/// The ParentTree is a number tree that maps marked-content identifiers (MCIDs)
+/// The `ParentTree` is a number tree that maps marked-content identifiers (MCIDs)
 /// to their parent structure elements. Without it, assistive technologies cannot
 /// navigate from page content to the structure tree.
 ///
-/// We also validate completeness: every page with /StructParents must have a
-/// corresponding entry in the ParentTree /Nums array.
+/// We also validate completeness: every page with /`StructParents` must have a
+/// corresponding entry in the `ParentTree` /Nums array.
 fn check_parent_tree(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     let Ok(catalog) = doc.raw_catalog() else {
         return;
     };
     let lopdf_doc = doc.lopdf();
 
-    let struct_tree = match get_struct_tree_dict(catalog, lopdf_doc) {
-        Some(dict) => dict,
-        None => {
-            // No StructTreeRoot — other checks will catch this
-            return;
-        }
+    let Some(struct_tree) = get_struct_tree_dict(catalog, lopdf_doc) else {
+        // No StructTreeRoot — other checks will catch this
+        return;
     };
 
-    let parent_tree_dict = match struct_tree.get(b"ParentTree") {
-        Ok(obj) => {
-            // Resolve the reference
-            let resolved = if let Ok(ref_id) = obj.as_reference() {
-                lopdf_doc.get_object(ref_id).ok()
-            } else {
-                Some(obj)
-            };
+    let parent_tree_dict = if let Ok(obj) = struct_tree.get(b"ParentTree") {
+        // Resolve the reference
+        let resolved = if let Ok(ref_id) = obj.as_reference() {
+            lopdf_doc.get_object(ref_id).ok()
+        } else {
+            Some(obj)
+        };
 
-            match resolved {
-                Some(resolved_obj) => match resolved_obj.as_dict() {
-                    Ok(d) => {
-                        results.push(pass("07-001", "StructTreeRoot contains /ParentTree"));
-                        Some(d)
-                    }
-                    Err(_) => {
-                        results.push(fail(
-                            "07-001",
-                            "StructTreeRoot /ParentTree is not a valid dictionary (number tree)",
-                        ));
-                        None
-                    }
-                },
-                None => {
-                    results.push(fail(
-                        "07-001",
-                        "StructTreeRoot /ParentTree reference cannot be resolved",
-                    ));
-                    None
-                }
+        if let Some(resolved_obj) = resolved {
+            if let Ok(d) = resolved_obj.as_dict() {
+                results.push(pass("07-001", "StructTreeRoot contains /ParentTree"));
+                Some(d)
+            } else {
+                results.push(fail(
+                    "07-001",
+                    "StructTreeRoot /ParentTree is not a valid dictionary (number tree)",
+                ));
+                None
             }
-        }
-        Err(_) => {
+        } else {
             results.push(fail(
                 "07-001",
-                "StructTreeRoot missing /ParentTree — MCIDs cannot be mapped to structure",
+                "StructTreeRoot /ParentTree reference cannot be resolved",
             ));
             None
         }
+    } else {
+        results.push(fail(
+            "07-001",
+            "StructTreeRoot missing /ParentTree — MCIDs cannot be mapped to structure",
+        ));
+        None
     };
 
     // Validate ParentTree completeness: every page with /StructParents
@@ -106,8 +96,8 @@ fn check_parent_tree(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     }
 }
 
-/// Validate that every page's /StructParents index has a corresponding entry
-/// in the ParentTree number tree.
+/// Validate that every page's /`StructParents` index has a corresponding entry
+/// in the `ParentTree` number tree.
 fn check_parent_tree_completeness(
     doc: &lopdf::Document,
     parent_tree: &lopdf::Dictionary,
@@ -243,19 +233,18 @@ fn check_suspects_flag(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     }
 }
 
-/// 07-003: All structure elements with non-standard types must be covered by RoleMap.
+/// 07-003: All structure elements with non-standard types must be covered by `RoleMap`.
 ///
 /// Walks the structure tree. Any element with a /S value that is neither a
-/// standard type nor present in the RoleMap is a failure.
+/// standard type nor present in the `RoleMap` is a failure.
 fn check_unmapped_types(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     let Ok(catalog) = doc.raw_catalog() else {
         return;
     };
     let lopdf_doc = doc.lopdf();
 
-    let struct_tree = match get_struct_tree_dict(catalog, lopdf_doc) {
-        Some(dict) => dict,
-        None => return,
+    let Some(struct_tree) = get_struct_tree_dict(catalog, lopdf_doc) else {
+        return;
     };
 
     // Get RoleMap (may be absent if no custom types are used)
@@ -266,7 +255,7 @@ fn check_unmapped_types(doc: &mut HornDocument, results: &mut Vec<CheckResult>) 
 
     // Walk the structure tree and collect all non-standard unmapped types
     let mut unmapped_types = Vec::new();
-    walk_struct_elements(lopdf_doc, struct_tree, &role_map, &mut unmapped_types, 0);
+    walk_struct_elements(lopdf_doc, struct_tree, role_map, &mut unmapped_types, 0);
 
     if unmapped_types.is_empty() {
         results.push(pass(
@@ -291,7 +280,7 @@ fn check_unmapped_types(doc: &mut HornDocument, results: &mut Vec<CheckResult>) 
 fn walk_struct_elements(
     doc: &lopdf::Document,
     dict: &lopdf::Dictionary,
-    role_map: &Option<&lopdf::Dictionary>,
+    role_map: Option<&lopdf::Dictionary>,
     unmapped: &mut Vec<String>,
     depth: usize,
 ) {
@@ -304,9 +293,7 @@ fn walk_struct_elements(
         if let Ok(type_name) = s_obj.as_name() {
             if !is_standard_structure_type(type_name) {
                 // Check if it's in the RoleMap
-                let is_mapped = role_map
-                    .map(|rm| rm.get(type_name).is_ok())
-                    .unwrap_or(false);
+                let is_mapped = role_map.is_some_and(|rm| rm.get(type_name).is_ok());
                 if !is_mapped {
                     unmapped.push(String::from_utf8_lossy(type_name).to_string());
                 }

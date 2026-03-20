@@ -224,7 +224,7 @@ fn check_role_mapping(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     }
 }
 
-/// Detect circular chains in a RoleMap. Returns a description of the cycle if found.
+/// Detect circular chains in a `RoleMap`. Returns a description of the cycle if found.
 fn detect_role_cycle(role_map: &lopdf::Dictionary, start: &[u8]) -> Option<String> {
     let mut visited = Vec::new();
     let mut current = start;

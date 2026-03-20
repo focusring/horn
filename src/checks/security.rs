@@ -57,7 +57,7 @@ fn check_encryption_permissions(doc: &mut HornDocument, results: &mut Vec<CheckR
     // Prefer in-memory bytes (available when loaded via from_bytes / WASM),
     // falling back to reading from disk for file-path mode.
     if encrypt_dict.is_none() {
-        let raw = doc.raw_bytes().map(|b| b.to_vec());
+        let raw = doc.raw_bytes().map(<[u8]>::to_vec);
         #[cfg(not(target_arch = "wasm32"))]
         let raw = raw.or_else(|| std::fs::read(doc.path()).ok());
         if let Some(ref raw_bytes) = raw {
@@ -78,12 +78,9 @@ fn check_encryption_permissions(doc: &mut HornDocument, results: &mut Vec<CheckR
 
     match encrypt_dict.get(b"P") {
         Ok(p_obj) => {
-            let p_value = match p_obj.as_i64() {
-                Ok(v) => v,
-                Err(_) => {
-                    results.push(fail("26-001", "/Encrypt/P is not an integer"));
-                    return;
-                }
+            let Ok(p_value) = p_obj.as_i64() else {
+                results.push(fail("26-001", "/Encrypt/P is not an integer"));
+                return;
             };
             emit_permission_results(p_value, results);
         }
@@ -140,16 +137,14 @@ fn extract_p_from_raw(data: &[u8]) -> Option<i64> {
     let mut pos = 0;
     while pos < data.len() {
         // Find next "obj" keyword (part of "N N obj")
-        let obj_pos = match find_bytes(data, b" obj", pos) {
-            Some(p) => p,
-            None => break,
+        let Some(obj_pos) = find_bytes(data, b" obj", pos) else {
+            break;
         };
 
         // Find the matching endobj
         let search_from = obj_pos + 4;
-        let endobj_pos = match find_bytes(data, b"endobj", search_from) {
-            Some(p) => p,
-            None => break,
+        let Some(endobj_pos) = find_bytes(data, b"endobj", search_from) else {
+            break;
         };
 
         // Extract this object's content
@@ -232,7 +227,7 @@ fn find_encrypt_dict(doc: &lopdf::Document) -> Option<&lopdf::Dictionary> {
 /// We identify it by the presence of /Filter (typically /Standard),
 /// /P (permissions), and /R (revision) keys.
 fn find_encrypt_in_objects(doc: &lopdf::Document) -> Option<&lopdf::Dictionary> {
-    for (_id, obj) in &doc.objects {
+    for obj in doc.objects.values() {
         if let Ok(dict) = obj.as_dict() {
             // Check for encryption dictionary hallmarks
             let has_filter =

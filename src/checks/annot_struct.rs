@@ -5,6 +5,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 
 /// Information about an OBJR entry found in the structure tree.
+#[allow(clippy::struct_field_names)]
 struct ObjrInfo {
     /// The struct elem type (/S) of the parent element containing this OBJR
     parent_type: Vec<u8>,
@@ -17,7 +18,7 @@ struct ObjrInfo {
 
 /// Annotation-to-structure tree cross-reference validation.
 ///
-/// PDF/UA-1 requires that all annotations (except Popup and PrinterMark) are
+/// PDF/UA-1 requires that all annotations (except Popup and `PrinterMark`) are
 /// represented in the structure tree via OBJR (object reference) entries. This
 /// check walks the structure tree to collect all OBJR references with metadata
 /// about their parent elements, then validates annotation-structure associations.
@@ -36,6 +37,7 @@ impl Check for AnnotStructChecks {
         "Annotations: structure tree association for all annotations"
     }
 
+    #[allow(clippy::too_many_lines)]
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>> {
         let mut results = Vec::new();
         let Ok(catalog) = doc.raw_catalog() else {
@@ -92,9 +94,8 @@ impl Check for AnnotStructChecks {
             };
 
             for annot_ref in &annots_array {
-                let annot_id = match annot_ref.as_reference() {
-                    Ok(id) => id,
-                    Err(_) => continue,
+                let Ok(annot_id) = annot_ref.as_reference() else {
+                    continue;
                 };
 
                 let annot_dict = match lopdf_doc.get_object(annot_id) {
@@ -409,17 +410,18 @@ fn check_annot_accessible_text(
                     .ok()
                     .and_then(|o| o.as_str().ok())
                     .is_some_and(|s| !s.is_empty());
-                if !has_contents && !info.parent_has_alt {
-                    if !matches!(subtype, b"Popup" | b"PrinterMark" | b"TrapNet") {
-                        let type_str = String::from_utf8_lossy(subtype);
-                        results.push(annot_fail(
+                if !has_contents
+                    && !info.parent_has_alt
+                    && !matches!(subtype, b"Popup" | b"PrinterMark" | b"TrapNet")
+                {
+                    let type_str = String::from_utf8_lossy(subtype);
+                    results.push(annot_fail(
                             "28-006", page_num,
                             &format!(
                                 "/{type_str} annotation has no /Contents and Annot struct elem has no /Alt"
                             ),
                             &format!("/{type_str}"),
                         ));
-                    }
                 }
             }
         }
@@ -520,7 +522,7 @@ fn check_screen_annotation(
     }
 }
 
-/// Check FileAttachment annotations for required FileSpec entries.
+/// Check `FileAttachment` annotations for required `FileSpec` entries.
 fn check_file_attachment(
     doc: &lopdf::Document,
     annot_dict: &lopdf::Dictionary,
@@ -542,13 +544,13 @@ fn check_file_attachment(
     let Some(fs_dict) = fs else { return };
 
     // /F must exist and be non-empty
-    let has_f = fs_dict
+    let has_filename = fs_dict
         .get(b"F")
         .ok()
         .and_then(|o| o.as_str().ok())
         .is_some_and(|s| !s.is_empty());
 
-    if !has_f {
+    if !has_filename {
         results.push(annot_fail(
             "28-008",
             page_num,
@@ -558,13 +560,13 @@ fn check_file_attachment(
     }
 
     // /UF must exist and be non-empty
-    let has_uf = fs_dict
+    let has_unicode_filename = fs_dict
         .get(b"UF")
         .ok()
         .and_then(|o| o.as_str().ok())
         .is_some_and(|s| !s.is_empty());
 
-    if !has_uf {
+    if !has_unicode_filename {
         results.push(annot_fail(
             "28-008",
             page_num,
@@ -584,7 +586,7 @@ fn has_inherited_key(
 ) -> bool {
     // Check if key exists and has a non-empty value
     if let Ok(obj) = dict.get(key) {
-        let is_empty = obj.as_str().ok().is_some_and(|s| s.is_empty());
+        let is_empty = obj.as_str().ok().is_some_and(<[u8]>::is_empty);
         if !is_empty {
             return true;
         }
@@ -666,7 +668,7 @@ fn resolve_role(role: &[u8], role_map: &HashMap<Vec<u8>, Vec<u8>>) -> Vec<u8> {
     current
 }
 
-/// Get the RoleMap from the structure tree root.
+/// Get the `RoleMap` from the structure tree root.
 fn get_role_map(catalog: &lopdf::Dictionary, doc: &lopdf::Document) -> HashMap<Vec<u8>, Vec<u8>> {
     let mut map = HashMap::new();
     let tree = catalog
@@ -685,9 +687,9 @@ fn get_role_map(catalog: &lopdf::Dictionary, doc: &lopdf::Document) -> HashMap<V
 
     let Some(rm) = role_map else { return map };
 
-    for (key, val) in rm.iter() {
+    for (key, val) in rm {
         if let Ok(name) = val.as_name() {
-            map.insert(key.to_vec(), name.to_vec());
+            map.insert(key.clone(), name.to_vec());
         }
     }
 

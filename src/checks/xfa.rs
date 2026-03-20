@@ -32,7 +32,7 @@ impl Check for XfaCheck {
 /// 25-001: Document must not contain XFA form data.
 ///
 /// XFA (XML Forms Architecture) is an Adobe proprietary format that is not
-/// accessible to assistive technologies. PDF/UA requires AcroForm instead.
+/// accessible to assistive technologies. PDF/UA requires `AcroForm` instead.
 fn check_xfa_presence(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     let Ok(catalog) = doc.raw_catalog() else {
         // No catalog — can't have XFA either; skip silently
@@ -42,23 +42,21 @@ fn check_xfa_presence(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     let lopdf_doc = doc.lopdf();
 
     // Check for /AcroForm in catalog
-    let acro_form = match catalog.get_deref(b"AcroForm", lopdf_doc) {
-        Ok(obj) => match obj.as_dict() {
-            Ok(dict) => dict,
-            Err(_) => {
-                // AcroForm exists but isn't a dictionary — no XFA possible
-                results.push(pass(
-                    "25-001",
-                    "No XFA form data (AcroForm is not a dictionary)",
-                ));
-                return;
-            }
-        },
-        Err(_) => {
-            // No AcroForm at all — no XFA possible
-            results.push(pass("25-001", "No XFA form data (no AcroForm present)"));
+    let acro_form = if let Ok(obj) = catalog.get_deref(b"AcroForm", lopdf_doc) {
+        if let Ok(dict) = obj.as_dict() {
+            dict
+        } else {
+            // AcroForm exists but isn't a dictionary — no XFA possible
+            results.push(pass(
+                "25-001",
+                "No XFA form data (AcroForm is not a dictionary)",
+            ));
             return;
         }
+    } else {
+        // No AcroForm at all — no XFA possible
+        results.push(pass("25-001", "No XFA form data (no AcroForm present)"));
+        return;
     };
 
     // Check for /XFA key within AcroForm

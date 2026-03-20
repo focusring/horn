@@ -37,7 +37,7 @@ impl Check for MetadataChecks {
 /// 06-001: Document catalog must contain a Lang entry.
 ///
 /// Per PDF/UA-1, the catalog should have `/Lang`. However, if the catalog
-/// lacks `/Lang` but the StructTreeRoot's direct children all carry `/Lang`,
+/// lacks `/Lang` but the `StructTreeRoot`'s direct children all carry `/Lang`,
 /// the document still provides language identification — we downgrade to a
 /// warning rather than a hard fail.
 fn check_document_language(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
@@ -88,9 +88,8 @@ fn check_document_language(doc: &mut HornDocument, results: &mut Vec<CheckResult
 fn has_struct_level_lang(catalog: &lopdf::Dictionary, doc: &lopdf::Document) -> bool {
     let struct_tree = match catalog.get(b"StructTreeRoot") {
         Ok(obj) => {
-            let ref_id = match obj.as_reference() {
-                Ok(r) => r,
-                Err(_) => return false,
+            let Ok(ref_id) = obj.as_reference() else {
+                return false;
             };
             match doc.get_object(ref_id) {
                 Ok(o) => match o.as_dict() {

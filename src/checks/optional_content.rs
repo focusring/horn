@@ -56,21 +56,19 @@ fn check_default_config_name(
     doc: &lopdf::Document,
     results: &mut Vec<CheckResult>,
 ) {
-    let d_dict = match oc_props.get_deref(b"D", doc) {
-        Ok(obj) => match obj.as_dict() {
-            Ok(d) => d,
-            Err(_) => {
-                results.push(fail("20-001", "/OCProperties/D is not a dictionary"));
-                return;
-            }
-        },
-        Err(_) => {
-            results.push(fail(
-                "20-001",
-                "/OCProperties missing default configuration /D",
-            ));
+    let d_dict = if let Ok(obj) = oc_props.get_deref(b"D", doc) {
+        if let Ok(d) = obj.as_dict() {
+            d
+        } else {
+            results.push(fail("20-001", "/OCProperties/D is not a dictionary"));
             return;
         }
+    } else {
+        results.push(fail(
+            "20-001",
+            "/OCProperties missing default configuration /D",
+        ));
+        return;
     };
 
     match d_dict.get(b"Name") {
@@ -158,24 +156,21 @@ fn check_ocg_names(
         };
         ocg_count += 1;
 
-        match ocg_dict.get(b"Name") {
-            Ok(name_obj) => {
-                let is_valid = if let Ok(s) = name_obj.as_str() {
-                    !s.is_empty()
-                } else if let Ok(n) = name_obj.as_name() {
-                    !n.is_empty()
-                } else {
-                    false
-                };
-                if !is_valid {
-                    all_named = false;
-                    results.push(fail("20-002", "OCG has empty or invalid /Name"));
-                }
-            }
-            Err(_) => {
+        if let Ok(name_obj) = ocg_dict.get(b"Name") {
+            let is_valid = if let Ok(s) = name_obj.as_str() {
+                !s.is_empty()
+            } else if let Ok(n) = name_obj.as_name() {
+                !n.is_empty()
+            } else {
+                false
+            };
+            if !is_valid {
                 all_named = false;
-                results.push(fail("20-002", "OCG missing /Name entry"));
+                results.push(fail("20-002", "OCG has empty or invalid /Name"));
             }
+        } else {
+            all_named = false;
+            results.push(fail("20-002", "OCG missing /Name entry"));
         }
     }
 

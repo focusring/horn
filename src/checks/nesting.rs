@@ -7,13 +7,13 @@ use anyhow::Result;
 ///
 /// PDF/UA-1 (via ISO 32000-1 §14.8.4) requires that structure elements follow
 /// strict parent-child rules. This check validates:
-/// - Table children: only THead, TBody, TFoot, TR, Caption allowed
+/// - Table children: only `THead`, `TBody`, `TFoot`, TR, Caption allowed
 /// - TR children: only TH, TD allowed
 /// - THead/TBody/TFoot children: only TR allowed
 /// - List (L) children: only LI, Caption allowed
-/// - LI children: only Lbl, LBody allowed
+/// - LI children: only Lbl, `LBody` allowed
 /// - TOC children: only TOCI, TOC, Caption allowed
-/// - Cardinality: at most one THead, one TFoot per Table; THead/TFoot require TBody
+/// - Cardinality: at most one `THead`, one `TFoot` per Table; THead/TFoot require `TBody`
 /// - Caption position: first or last child only
 pub struct NestingChecks;
 
@@ -132,7 +132,7 @@ fn resolve_child_type(doc: &lopdf::Document, obj: &lopdf::Object) -> Option<Vec<
     dict.get(b"S")
         .ok()
         .and_then(|o| o.as_name().ok())
-        .map(|n| n.to_vec())
+        .map(<[u8]>::to_vec)
 }
 
 fn recurse_kids(
@@ -169,7 +169,7 @@ fn recurse_kids(
     }
 }
 
-/// Table may only contain: THead, TBody, TFoot, TR, Caption
+/// Table may only contain: `THead`, `TBody`, `TFoot`, TR, Caption
 fn validate_table_children(children: &[ChildInfo], results: &mut Vec<CheckResult>) {
     let allowed = &[b"THead" as &[u8], b"TBody", b"TFoot", b"TR", b"Caption"];
 
@@ -181,7 +181,7 @@ fn validate_table_children(children: &[ChildInfo], results: &mut Vec<CheckResult
     for (i, child) in children.iter().enumerate() {
         let ct = &child.elem_type;
 
-        if !allowed.iter().any(|a| *a == ct.as_slice()) {
+        if !allowed.contains(&ct.as_slice()) {
             let type_name = String::from_utf8_lossy(ct);
             results.push(fail(
                 "09-006",
@@ -303,7 +303,7 @@ fn validate_list_children(children: &[ChildInfo], results: &mut Vec<CheckResult>
     }
 }
 
-/// LI may only contain: Lbl, LBody
+/// LI may only contain: Lbl, `LBody`
 fn validate_li_children(children: &[ChildInfo], results: &mut Vec<CheckResult>) {
     for child in children {
         let ct = &child.elem_type;

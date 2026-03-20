@@ -46,61 +46,44 @@ fn check_metadata_stream_exists(
     doc: &mut HornDocument,
     results: &mut Vec<CheckResult>,
 ) -> Option<Vec<u8>> {
-    let catalog = match doc.raw_catalog() {
-        Ok(c) => c,
-        Err(_) => {
-            results.push(fail(
-                "05-001",
-                "Cannot read document catalog to check /Metadata",
-            ));
-            return None;
-        }
+    let Ok(catalog) = doc.raw_catalog() else {
+        results.push(fail(
+            "05-001",
+            "Cannot read document catalog to check /Metadata",
+        ));
+        return None;
     };
 
     let lopdf_doc = doc.lopdf();
 
-    let meta_ref = match catalog.get(b"Metadata") {
-        Ok(obj) => match obj.as_reference() {
-            Ok(r) => r,
-            Err(_) => {
-                results.push(fail(
-                    "05-001",
-                    "/Metadata entry is not an indirect reference",
-                ));
-                return None;
-            }
-        },
-        Err(_) => {
-            results.push(fail("05-001", "Document catalog missing /Metadata stream"));
-            return None;
-        }
+    let Ok(meta_obj_raw) = catalog.get(b"Metadata") else {
+        results.push(fail("05-001", "Document catalog missing /Metadata stream"));
+        return None;
+    };
+    let Ok(meta_ref) = meta_obj_raw.as_reference() else {
+        results.push(fail(
+            "05-001",
+            "/Metadata entry is not an indirect reference",
+        ));
+        return None;
     };
 
-    let meta_obj = match lopdf_doc.get_object(meta_ref) {
-        Ok(obj) => obj,
-        Err(_) => {
-            results.push(fail("05-001", "Cannot resolve /Metadata reference"));
-            return None;
-        }
+    let Ok(meta_obj) = lopdf_doc.get_object(meta_ref) else {
+        results.push(fail("05-001", "Cannot resolve /Metadata reference"));
+        return None;
     };
 
-    let stream = match meta_obj.as_stream() {
-        Ok(s) => s,
-        Err(_) => {
-            results.push(fail("05-001", "/Metadata object is not a stream"));
-            return None;
-        }
+    let Ok(stream) = meta_obj.as_stream() else {
+        results.push(fail("05-001", "/Metadata object is not a stream"));
+        return None;
     };
 
-    match stream.get_plain_content() {
-        Ok(content) => {
-            results.push(pass("05-001", "/Metadata stream exists in catalog"));
-            Some(content)
-        }
-        Err(_) => {
-            results.push(fail("05-001", "Cannot decompress /Metadata stream"));
-            None
-        }
+    if let Ok(content) = stream.get_plain_content() {
+        results.push(pass("05-001", "/Metadata stream exists in catalog"));
+        Some(content)
+    } else {
+        results.push(fail("05-001", "Cannot decompress /Metadata stream"));
+        None
     }
 }
 
@@ -239,55 +222,59 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
         })
         .count();
 
-    if pdfua_schema_count > 1 {
-        results.push(fail(
-            "05-005",
-            &format!(
-                "XMP has {pdfua_schema_count} duplicate extension schema definitions for PDF/UA namespace — must have exactly one"
-            ),
-        ));
-    } else if pdfua_schema_count == 1 {
-        // Verify the prefix is correct (pdfuaid, not pdfuaia or something else)
-        let prefix_tag = "<pdfaSchema:prefix>";
-        let prefix_end = "</pdfaSchema:prefix>";
+    match pdfua_schema_count.cmp(&1) {
+        std::cmp::Ordering::Greater => {
+            results.push(fail(
+                "05-005",
+                &format!(
+                    "XMP has {pdfua_schema_count} duplicate extension schema definitions for PDF/UA namespace — must have exactly one"
+                ),
+            ));
+        }
+        std::cmp::Ordering::Equal => {
+            // Verify the prefix is correct (pdfuaid, not pdfuaia or something else)
+            let prefix_tag = "<pdfaSchema:prefix>";
+            let prefix_end = "</pdfaSchema:prefix>";
 
-        // Find all prefix declarations and check ones near pdfua namespace
-        let mut found_correct_prefix = false;
-        let mut pos = 0;
-        while let Some(idx) = xmp[pos..].find(prefix_tag) {
-            let abs_idx = pos + idx;
-            let value_start = abs_idx + prefix_tag.len();
-            if let Some(end_rel) = xmp[value_start..].find(prefix_end) {
-                let prefix_value = xmp[value_start..value_start + end_rel].trim();
-                // Check if this prefix block is near the pdfua namespace URI
-                let context_start = abs_idx.saturating_sub(500);
-                let context_end = (abs_idx + 500).min(xmp.len());
-                let context = &xmp[context_start..context_end];
-                if context.contains(pdfua_ns) && prefix_value == "pdfuaid" {
-                    found_correct_prefix = true;
+            // Find all prefix declarations and check ones near pdfua namespace
+            let mut found_correct_prefix = false;
+            let mut pos = 0;
+            while let Some(idx) = xmp[pos..].find(prefix_tag) {
+                let abs_idx = pos + idx;
+                let value_start = abs_idx + prefix_tag.len();
+                if let Some(end_rel) = xmp[value_start..].find(prefix_end) {
+                    let prefix_value = xmp[value_start..value_start + end_rel].trim();
+                    // Check if this prefix block is near the pdfua namespace URI
+                    let context_start = abs_idx.saturating_sub(500);
+                    let context_end = (abs_idx + 500).min(xmp.len());
+                    let context = &xmp[context_start..context_end];
+                    if context.contains(pdfua_ns) && prefix_value == "pdfuaid" {
+                        found_correct_prefix = true;
+                    }
+                    pos = value_start + end_rel + prefix_end.len();
+                } else {
+                    break;
                 }
-                pos = value_start + end_rel + prefix_end.len();
+            }
+
+            if found_correct_prefix {
+                results.push(pass(
+                    "05-004",
+                    "XMP extension schema for pdfuaid is properly defined",
+                ));
             } else {
-                break;
+                results.push(fail(
+                    "05-004",
+                    "XMP extension schema prefix does not match 'pdfuaid'",
+                ));
             }
         }
-
-        if found_correct_prefix {
-            results.push(pass(
-                "05-004",
-                "XMP extension schema for pdfuaid is properly defined",
-            ));
-        } else {
+        std::cmp::Ordering::Less => {
             results.push(fail(
                 "05-004",
-                "XMP extension schema prefix does not match 'pdfuaid'",
+                "XMP extension schema for PDF/UA namespace not found",
             ));
         }
-    } else {
-        results.push(fail(
-            "05-004",
-            "XMP extension schema for PDF/UA namespace not found",
-        ));
     }
 }
 

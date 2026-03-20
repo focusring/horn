@@ -9,7 +9,7 @@ use lopdf::content::Content;
 /// Parses PDF page content streams to detect:
 /// - 01-001: Content not wrapped in marked content sequences (untagged text/images)
 /// - 01-005: Artifact content nested inside tagged content
-/// - 30-001: Form XObjects not properly tagged
+/// - 30-001: Form `XObjects` not properly tagged
 pub struct ContentStreamChecks;
 
 impl Check for ContentStreamChecks {
@@ -36,14 +36,12 @@ impl Check for ContentStreamChecks {
         let mut pages_analyzed = 0u32;
 
         for (page_num, page_id) in &pages {
-            let content_data = match lopdf_doc.get_page_content(*page_id) {
-                Ok(data) => data,
-                Err(_) => continue,
+            let Ok(content_data) = lopdf_doc.get_page_content(*page_id) else {
+                continue;
             };
 
-            let content = match Content::decode(&content_data) {
-                Ok(c) => c,
-                Err(_) => continue,
+            let Ok(content) = Content::decode(&content_data) else {
+                continue;
             };
 
             pages_analyzed += 1;
@@ -171,13 +169,12 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
     result
 }
 
-/// 30-002: Check for Reference XObjects which are forbidden in PDF/UA.
+/// 30-002: Check for Reference `XObjects` which are forbidden in PDF/UA.
 #[allow(dead_code)]
 fn check_reference_xobjects(doc: &lopdf::Document, results: &mut Vec<CheckResult>) {
-    for (_id, obj) in &doc.objects {
-        let stream = match obj.as_stream() {
-            Ok(s) => s,
-            Err(_) => continue,
+    for obj in doc.objects.values() {
+        let Ok(stream) = obj.as_stream() else {
+            continue;
         };
 
         let dict = &stream.dict;

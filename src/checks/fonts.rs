@@ -186,9 +186,9 @@ fn check_font_descriptor_embedding(
     }
 }
 
-/// 31-007: Validate ToUnicode CMap content for invalid mappings.
+/// 31-007: Validate `ToUnicode` `CMap` content for invalid mappings.
 ///
-/// A ToUnicode CMap that maps character codes to U+0000 (NULL) is invalid —
+/// A `ToUnicode` `CMap` that maps character codes to U+0000 (NULL) is invalid —
 /// it means glyphs have no Unicode representation.
 fn check_tounicode_content(
     doc: &lopdf::Document,
@@ -201,9 +201,8 @@ fn check_tounicode_content(
         return;
     };
 
-    let tu_ref = match tu_obj.as_reference() {
-        Ok(r) => r,
-        Err(_) => return,
+    let Ok(tu_ref) = tu_obj.as_reference() else {
+        return;
     };
     let Ok(tu_resolved) = doc.get_object(tu_ref) else {
         return;
@@ -249,10 +248,11 @@ fn check_tounicode_content(
 /// 31-005: Font encoding validation.
 ///
 /// Checks:
-/// - /Encoding name must be a valid predefined name (WinAnsiEncoding, MacRomanEncoding,
-///   MacExpertEncoding) or a dictionary — not arbitrary names like /Custom or /Identity
-/// - When /Encoding is a dictionary, /BaseEncoding must be a valid standard encoding
+/// - /Encoding name must be a valid predefined name (`WinAnsiEncoding`, `MacRomanEncoding`,
+///   `MacExpertEncoding`) or a dictionary — not arbitrary names like /Custom or /Identity
+/// - When /Encoding is a dictionary, /`BaseEncoding` must be a valid standard encoding
 /// - /Differences array must not contain .notdef glyph names
+#[allow(clippy::too_many_lines)]
 fn check_encoding_differences(
     doc: &lopdf::Document,
     font_dict: &lopdf::Dictionary,
@@ -392,6 +392,7 @@ fn is_valid_encoding_name(name: &[u8]) -> bool {
 
 /// 31-006: Fonts must have a `ToUnicode` `CMap` or a recognized encoding
 /// so that text content can be mapped to Unicode.
+#[allow(clippy::too_many_lines)]
 fn check_tounicode(
     doc: &lopdf::Document,
     font_dict: &lopdf::Dictionary,
@@ -466,12 +467,12 @@ fn check_tounicode(
             })
             .and_then(|dd| {
                 let csi_obj = dd.get(b"CIDSystemInfo").ok()?;
-                let csi = if let Ok(r) = csi_obj.as_reference() {
+
+                if let Ok(r) = csi_obj.as_reference() {
                     doc.get_object(r).ok()?.as_dict().ok()
                 } else {
                     csi_obj.as_dict().ok()
-                };
-                csi
+                }
             })
             .is_some_and(|csi| {
                 let registry = csi
@@ -537,8 +538,9 @@ fn check_tounicode(
     }
 }
 
-/// 31-002: CIDFontType2 fonts must have a /CIDToGIDMap entry.
-/// 31-003: CIDFont encoding (CMap) must be a recognized name or valid stream.
+/// 31-002: `CIDFontType2` fonts must have a /`CIDToGIDMap` entry.
+/// 31-003: `CIDFont` encoding (`CMap`) must be a recognized name or valid stream.
+#[allow(clippy::too_many_lines)]
 fn check_cidfont_requirements(
     doc: &lopdf::Document,
     cid_dict: &lopdf::Dictionary,
@@ -670,10 +672,10 @@ fn check_cidfont_requirements(
     }
 }
 
-/// 31-004: When a CIDFont has a /CIDSet stream, it must be a valid stream.
+/// 31-004: When a `CIDFont` has a /`CIDSet` stream, it must be a valid stream.
 ///
-/// Note: CIDSet presence is required by PDF/A but NOT by PDF/UA-1 in general.
-/// We only validate CIDSet when it exists — we don't flag its absence.
+/// Note: `CIDSet` presence is required by PDF/A but NOT by PDF/UA-1 in general.
+/// We only validate `CIDSet` when it exists — we don't flag its absence.
 fn check_cidset(
     doc: &lopdf::Document,
     cid_dict: &lopdf::Dictionary,
@@ -694,21 +696,18 @@ fn check_cidset(
     };
 
     // CIDSet must be a stream reference
-    let cidset_ref = match cidset_obj.as_reference() {
-        Ok(r) => r,
-        Err(_) => {
-            results.push(CheckResult {
-                rule_id: "31-004".to_string(),
-                checkpoint: 31,
-                description: format!("Font /{font_label}: /CIDSet is not a stream reference"),
-                severity: Severity::Error,
-                outcome: CheckOutcome::Fail {
-                    message: format!("Font /{font_label}: /CIDSet must be a stream reference"),
-                    location: location.cloned(),
-                },
-            });
-            return;
-        }
+    let Ok(cidset_ref) = cidset_obj.as_reference() else {
+        results.push(CheckResult {
+            rule_id: "31-004".to_string(),
+            checkpoint: 31,
+            description: format!("Font /{font_label}: /CIDSet is not a stream reference"),
+            severity: Severity::Error,
+            outcome: CheckOutcome::Fail {
+                message: format!("Font /{font_label}: /CIDSet must be a stream reference"),
+                location: location.cloned(),
+            },
+        });
+        return;
     };
 
     let Ok(cidset_resolved) = doc.get_object(cidset_ref) else {
@@ -732,15 +731,16 @@ fn check_cidset(
     }
 }
 
-/// 31-003 extended: For Type0 fonts, validate the CMap encoding.
+/// 31-003 extended: For Type0 fonts, validate the `CMap` encoding.
 ///
 /// Checks:
-/// - Predefined CMap name must be a known value (Identity-H, Identity-V, or
-///   one of the standard CJK CMaps from ISO 32000-1 Table 118).
-/// - If the encoding is a CMap stream, WMode in the stream must be consistent
-///   with any /WMode in the CIDFont.
-/// - Registry/Ordering/Supplement in the CMap stream's CIDSystemInfo must match
-///   the CIDFont's CIDSystemInfo values.
+/// - Predefined `CMap` name must be a known value (Identity-H, Identity-V, or
+///   one of the standard CJK `CMaps` from ISO 32000-1 Table 118).
+/// - If the encoding is a `CMap` stream, `WMode` in the stream must be consistent
+///   with any /`WMode` in the `CIDFont`.
+/// - Registry/Ordering/Supplement in the `CMap` stream's `CIDSystemInfo` must match
+///   the `CIDFont`'s `CIDSystemInfo` values.
+#[allow(clippy::too_many_lines)]
 fn check_type0_cmap_encoding(
     doc: &lopdf::Document,
     font_dict: &lopdf::Dictionary,
@@ -775,18 +775,16 @@ fn check_type0_cmap_encoding(
     }
 
     // It's a CMap stream reference — validate its contents
-    let cmap_ref = match encoding_obj.as_reference() {
-        Ok(r) => r,
-        Err(_) => return,
+    let Ok(cmap_ref) = encoding_obj.as_reference() else {
+        return;
     };
     let Ok(cmap_obj) = doc.get_object(cmap_ref) else {
         return;
     };
 
     // Get the CMap as a stream (it should be a PDF stream object)
-    let cmap_stream = match cmap_obj.as_stream() {
-        Ok(s) => s,
-        Err(_) => return,
+    let Ok(cmap_stream) = cmap_obj.as_stream() else {
+        return;
     };
 
     // The stream's dictionary contains /WMode, /UseCMap, /CIDSystemInfo etc.
@@ -816,9 +814,8 @@ fn check_type0_cmap_encoding(
     }
 
     // Decompress and parse the CMap stream content
-    let stream_data = match cmap_stream.decompressed_content() {
-        Ok(data) => data,
-        Err(_) => return,
+    let Ok(stream_data) = cmap_stream.decompressed_content() else {
+        return;
     };
 
     let stream_str = String::from_utf8_lossy(&stream_data);
@@ -943,7 +940,7 @@ fn check_type0_cmap_encoding(
     }
 }
 
-/// Check if a CMap name is a valid predefined CMap from ISO 32000-1 Table 118.
+/// Check if a `CMap` name is a valid predefined `CMap` from ISO 32000-1 Table 118.
 fn is_valid_predefined_cmap(name: &[u8]) -> bool {
     matches!(
         name,
@@ -987,7 +984,7 @@ fn is_valid_predefined_cmap(name: &[u8]) -> bool {
     )
 }
 
-/// Extract CIDSystemInfo (Registry, Ordering, Supplement) from a CMap stream.
+/// Extract `CIDSystemInfo` (Registry, Ordering, Supplement) from a `CMap` stream.
 fn extract_cmap_cidsysteminfo(stream: &str) -> Option<(String, String, i64)> {
     // Look for /CIDSystemInfo in the CMap program
     // Format: /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> def
@@ -1017,7 +1014,7 @@ fn extract_cmap_cidsysteminfo(stream: &str) -> Option<(String, String, i64)> {
     }
 }
 
-/// Extract WMode value from CMap stream content.
+/// Extract `WMode` value from `CMap` stream content.
 fn extract_cmap_wmode(stream: &str) -> Option<i64> {
     // Look for: /WMode 0 def  or  /WMode 1 def
     stream.find("/WMode").and_then(|pos| {

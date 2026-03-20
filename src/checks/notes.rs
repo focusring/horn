@@ -58,44 +58,39 @@ impl Check for NoteChecks {
 
                 note_count += 1;
 
-                match dict.get(b"ID") {
-                    Ok(id_obj) => {
-                        if let Ok(id_bytes_ref) = id_obj.as_str() {
-                            if id_bytes_ref.is_empty() {
-                                missing_id += 1;
-                                results.push(fail(
-                                    "19-001",
-                                    &format!("Note {note_count}: /ID is empty"),
-                                ));
-                            } else {
-                                let id_vec = id_bytes_ref.to_vec();
-                                let id_display = String::from_utf8_lossy(&id_vec).into_owned();
-                                if !seen_ids.insert(id_vec) {
-                                    duplicate_ids += 1;
-                                    results.push(fail(
-                                    "19-002",
-                                    &format!(
-                                        "Note {note_count}: duplicate /ID \"{id_display}\" — Note IDs must be unique"
-                                    ),
-                                ));
-                                }
-                            }
-                        } else {
-                            // ID exists but isn't a string — treat as missing
+                if let Ok(id_obj) = dict.get(b"ID") {
+                    if let Ok(id_bytes_ref) = id_obj.as_str() {
+                        if id_bytes_ref.is_empty() {
                             missing_id += 1;
-                            results.push(fail(
-                                "19-001",
-                                &format!("Note {note_count}: /ID is not a valid string"),
+                            results
+                                .push(fail("19-001", &format!("Note {note_count}: /ID is empty")));
+                        } else {
+                            let id_vec = id_bytes_ref.to_vec();
+                            let id_display = String::from_utf8_lossy(&id_vec).into_owned();
+                            if !seen_ids.insert(id_vec) {
+                                duplicate_ids += 1;
+                                results.push(fail(
+                                "19-002",
+                                &format!(
+                                    "Note {note_count}: duplicate /ID \"{id_display}\" — Note IDs must be unique"
+                                ),
                             ));
+                            }
                         }
-                    }
-                    Err(_) => {
+                    } else {
+                        // ID exists but isn't a string — treat as missing
                         missing_id += 1;
                         results.push(fail(
                             "19-001",
-                            &format!("Note {note_count}: missing /ID attribute"),
+                            &format!("Note {note_count}: /ID is not a valid string"),
                         ));
                     }
+                } else {
+                    missing_id += 1;
+                    results.push(fail(
+                        "19-001",
+                        &format!("Note {note_count}: missing /ID attribute"),
+                    ));
                 }
             },
             0,

@@ -38,7 +38,7 @@ impl Check for LanguageChecks {
             .get(b"Lang")
             .ok()
             .and_then(|o| o.as_str().ok())
-            .map(|s| s.to_vec());
+            .map(<[u8]>::to_vec);
 
         if let Some(ref lang) = doc_lang {
             if !lang.is_empty() && !is_valid_bcp47(lang) {
@@ -68,7 +68,7 @@ impl Check for LanguageChecks {
         walk_struct_tree_with_lang(
             lopdf_doc,
             struct_tree,
-            &doc_lang,
+            doc_lang.as_ref(),
             &mut invalid_langs,
             &mut empty_langs,
             &mut missing_lang_on_alt,
@@ -175,7 +175,7 @@ fn is_valid_bcp47(tag: &[u8]) -> bool {
     if primary.is_empty() || primary.len() > 8 {
         return false;
     }
-    if !primary.iter().all(|b| b.is_ascii_alphabetic()) {
+    if !primary.iter().all(u8::is_ascii_alphabetic) {
         return false;
     }
 
@@ -184,7 +184,7 @@ fn is_valid_bcp47(tag: &[u8]) -> bool {
         if subtag.is_empty() || subtag.len() > 8 {
             return false;
         }
-        if !subtag.iter().all(|b| b.is_ascii_alphanumeric()) {
+        if !subtag.iter().all(u8::is_ascii_alphanumeric) {
             return false;
         }
     }
@@ -221,12 +221,12 @@ fn decode_utf16be(data: &[u8]) -> Vec<u8> {
 ///
 /// PDF /Lang is inherited: if a parent structure element has /Lang, all descendants
 /// inherit it. We pass the inherited lang down the tree so that elements with
-/// /Alt, /ActualText, or /E are correctly evaluated against their ancestor context.
+/// /Alt, /`ActualText`, or /E are correctly evaluated against their ancestor context.
 #[allow(clippy::too_many_arguments)]
 fn walk_struct_tree_with_lang(
     doc: &lopdf::Document,
     dict: &lopdf::Dictionary,
-    inherited_lang: &Option<Vec<u8>>,
+    inherited_lang: Option<&Vec<u8>>,
     invalid_langs: &mut Vec<String>,
     empty_langs: &mut usize,
     missing_lang_on_alt: &mut usize,
@@ -243,7 +243,7 @@ fn walk_struct_tree_with_lang(
         .get(b"Lang")
         .ok()
         .and_then(|o| o.as_str().ok())
-        .map(|s| s.to_vec());
+        .map(<[u8]>::to_vec);
 
     // Validate BCP 47 on every /Lang in the struct tree
     if let Some(ref lang) = elem_lang {
@@ -257,14 +257,12 @@ fn walk_struct_tree_with_lang(
 
     // Effective lang: element's own /Lang, or inherited from parent/doc
     let effective_lang = if elem_lang.as_ref().is_some_and(|l| !l.is_empty()) {
-        &elem_lang
+        elem_lang.as_ref()
     } else {
         inherited_lang
     };
 
-    let has_lang_context = effective_lang
-        .as_ref()
-        .is_some_and(|l| !l.is_empty() && is_valid_bcp47(l));
+    let has_lang_context = effective_lang.is_some_and(|l| !l.is_empty() && is_valid_bcp47(l));
 
     // Only check structure elements (have /S key)
     if dict.get(b"S").is_ok() {

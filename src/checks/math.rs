@@ -8,8 +8,8 @@ use anyhow::Result;
 /// PDF/UA-1 requires that Formula structure elements have alternative text
 /// (`/Alt`) so assistive technologies can convey mathematical content.
 ///
-/// PDF/UA-2 allows formulas to be accessible through MathML structure trees
-/// (Math elements with /NS referencing the MathML namespace), so the /Alt
+/// PDF/UA-2 allows formulas to be accessible through `MathML` structure trees
+/// (Math elements with /NS referencing the `MathML` namespace), so the /Alt
 /// requirement is relaxed — this check only applies to UA-1.
 pub struct MathChecks;
 

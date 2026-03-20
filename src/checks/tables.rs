@@ -113,7 +113,7 @@ impl Check for TableChecks {
             let total_rows = table.rows.len();
             let max_cols = table.rows.iter().map(|r| r.cell_count).max().unwrap_or(0);
             for span in &table.span_values {
-                if span.is_row && span.value as usize > total_rows {
+                if span.is_row && usize::try_from(span.value).unwrap_or(0) > total_rows {
                     results.push(fail(
                         "15-006",
                         15,
@@ -123,7 +123,7 @@ impl Check for TableChecks {
                         ),
                     ));
                 }
-                if !span.is_row && span.value as usize > max_cols {
+                if !span.is_row && usize::try_from(span.value).unwrap_or(0) > max_cols {
                     results.push(fail(
                         "15-006",
                         15,
@@ -149,6 +149,7 @@ impl Check for TableChecks {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct TableInfo {
     rows: Vec<RowInfo>,
     is_complex: bool,
@@ -299,7 +300,7 @@ fn analyze_row(
     });
 }
 
-/// Get the ColSpan value from a cell's attribute dictionary. Defaults to 1.
+/// Get the `ColSpan` value from a cell's attribute dictionary. Defaults to 1.
 fn get_colspan(doc: &lopdf::Document, cell_dict: &lopdf::Dictionary) -> usize {
     let Ok(attrs) = cell_dict.get(b"A") else {
         return 1;
@@ -310,7 +311,7 @@ fn get_colspan(doc: &lopdf::Document, cell_dict: &lopdf::Dictionary) -> usize {
             .ok()?
             .as_i64()
             .ok()
-            .map(|n| n.max(1) as usize)
+            .map(|n| usize::try_from(n.max(1)).unwrap_or(1))
     };
 
     match attrs {
@@ -336,15 +337,15 @@ fn get_colspan(doc: &lopdf::Document, cell_dict: &lopdf::Dictionary) -> usize {
             .get_object(*ref_id)
             .ok()
             .and_then(|o| o.as_dict().ok())
-            .and_then(|d| from_dict(d))
+            .and_then(from_dict)
             .unwrap_or(1),
         _ => 1,
     }
 }
 
-/// Validate RowSpan and ColSpan attribute values on a TH or TD cell.
+/// Validate `RowSpan` and `ColSpan` attribute values on a TH or TD cell.
 ///
-/// Per PDF spec, RowSpan and ColSpan must be positive integers (>= 1).
+/// Per PDF spec, `RowSpan` and `ColSpan` must be positive integers (>= 1).
 /// A value of 0, negative, or non-integer is invalid.
 /// Also records span values for geometry validation.
 fn validate_cell_span_attrs(
@@ -386,7 +387,7 @@ fn validate_cell_span_attrs(
 
     match attrs {
         lopdf::Object::Dictionary(dict) => {
-            check_span(dict, &mut table.attr_issues, &mut table.span_values)
+            check_span(dict, &mut table.attr_issues, &mut table.span_values);
         }
         lopdf::Object::Array(arr) => {
             for item in arr {
@@ -413,7 +414,7 @@ fn validate_cell_span_attrs(
 }
 
 /// Check if an attribute dictionary has a /Scope entry.
-/// Returns (has_scope, is_valid_scope).
+/// Returns (`has_scope`, `is_valid_scope`).
 fn check_scope_attr(doc: &lopdf::Document, attrs: &lopdf::Object) -> (bool, bool) {
     let check_dict = |d: &lopdf::Dictionary| -> (bool, bool) {
         match d.get(b"Scope") {
@@ -456,8 +457,7 @@ fn check_scope_attr(doc: &lopdf::Document, attrs: &lopdf::Object) -> (bool, bool
         lopdf::Object::Reference(ref_id) => doc
             .get_object(*ref_id)
             .ok()
-            .map(|o| check_scope_attr(doc, o))
-            .unwrap_or((false, false)),
+            .map_or((false, false), |o| check_scope_attr(doc, o)),
         _ => (false, false),
     }
 }

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 /// and `lopdf` (raw object access) parsers.
 ///
 /// When loaded via `from_bytes`, `lopdf` parsing is deferred until first access.
-/// This makes the initial load fast (pdf_oxide only), which is critical for WASM
+/// This makes the initial load fast (`pdf_oxide` only), which is critical for WASM
 /// where lopdf's eager stream decompression is very slow.
 pub struct HornDocument {
     oxide: pdf_oxide::PdfDocument,
@@ -133,19 +133,16 @@ fn detect_standard_from_xmp(doc: &lopdf::Document) -> Standard {
         Err(_) => return Standard::Unknown,
     };
 
-    let meta_obj = match doc.get_object(meta_ref) {
-        Ok(obj) => obj,
-        Err(_) => return Standard::Unknown,
+    let Ok(meta_obj) = doc.get_object(meta_ref) else {
+        return Standard::Unknown;
     };
 
-    let stream = match meta_obj.as_stream() {
-        Ok(s) => s,
-        Err(_) => return Standard::Unknown,
+    let Ok(stream) = meta_obj.as_stream() else {
+        return Standard::Unknown;
     };
 
-    let content = match stream.get_plain_content() {
-        Ok(c) => c,
-        Err(_) => return Standard::Unknown,
+    let Ok(content) = stream.get_plain_content() else {
+        return Standard::Unknown;
     };
 
     let xmp = String::from_utf8_lossy(&content);

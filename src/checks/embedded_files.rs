@@ -58,10 +58,10 @@ impl Check for EmbeddedFileChecks {
 
         for (i, fs_dict) in file_specs.iter().enumerate() {
             let file_num = i + 1;
-            let has_f = fs_dict.get(b"F").is_ok();
-            let has_uf = fs_dict.get(b"UF").is_ok();
+            let has_filename = fs_dict.get(b"F").is_ok();
+            let has_unicode_filename = fs_dict.get(b"UF").is_ok();
 
-            if !has_f {
+            if !has_filename {
                 all_valid = false;
                 results.push(fail(
                     "21-001",
@@ -69,7 +69,7 @@ impl Check for EmbeddedFileChecks {
                 ));
             }
 
-            if !has_uf {
+            if !has_unicode_filename {
                 all_valid = false;
                 results.push(fail(
                     "21-002",
