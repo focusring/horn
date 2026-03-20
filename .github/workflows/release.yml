@@ -42,7 +42,7 @@ jobs:
             name: horn-windows-x86_64.exe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -76,7 +76,7 @@ jobs:
         if: runner.os == 'Windows'
         run: cp target/${{ matrix.target }}/release/horn.exe ${{ matrix.name }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: ${{ matrix.name }}
@@ -87,7 +87,7 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -111,7 +111,7 @@ jobs:
       - name: Pack tarball
         run: cd horn-wasm/pkg && npm pack
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: horn-wasm-pkg
           path: horn-wasm/pkg/*.tgz
@@ -139,7 +139,7 @@ jobs:
             args: ""
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -172,7 +172,7 @@ jobs:
           find target -type f \( -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.msi" -o -name "*.app.tar.gz" \) -exec cp {} desktop-out/ \; 2>/dev/null || true
           ls -la desktop-out/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}
           path: desktop-out/*
@@ -187,13 +187,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: pnpm/action-setup@v4
         with:
           version: 10
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -207,7 +207,7 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: docs/.vitepress/dist
 
@@ -221,7 +221,7 @@ jobs:
     needs: [cli, wasm, desktop, docs]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
 
