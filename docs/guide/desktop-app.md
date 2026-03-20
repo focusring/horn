@@ -6,12 +6,34 @@ Horn is available as a native desktop application built with [Tauri](https://tau
 
 Download the latest installer for your platform from [GitHub Releases](https://github.com/focusring/horn/releases/latest):
 
-| Platform | Format | File |
-|----------|--------|------|
-| macOS (Universal) | DMG | `Horn_x.y.z_universal.dmg` |
-| Windows (x86_64) | MSI | `Horn_x.y.z_x64-setup.msi` |
-| Linux (x86_64) | Debian | `horn_x.y.z_amd64.deb` |
-| Linux (x86_64) | AppImage | `Horn_x.y.z_amd64.AppImage` |
+| Platform | Format |
+|----------|--------|
+| macOS (Universal) | `.dmg` |
+| Windows (x86_64) | `.msi` |
+| Linux (x86_64) | `.deb` / `.AppImage` |
+
+::: code-group
+
+```bash [macOS]
+# Download the DMG, open it, and drag Horn to Applications
+open Horn_*.dmg
+```
+
+```bash [Linux (Debian/Ubuntu)]
+sudo dpkg -i horn_*_amd64.deb
+```
+
+```bash [Linux (AppImage)]
+chmod +x Horn_*_amd64.AppImage
+./Horn_*_amd64.AppImage
+```
+
+```powershell [Windows]
+# Run the MSI installer
+Start-Process Horn_*_x64-setup.msi
+```
+
+:::
 
 ## Features
 
