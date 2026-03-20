@@ -4,21 +4,37 @@
 
 ### Pre-built binaries
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/focusring/horn/releases).
+Install with a single command:
 
-| Platform | Binary |
-|----------|--------|
-| Linux (x86_64) | `horn-linux-x86_64` |
-| Linux (aarch64) | `horn-linux-aarch64` |
-| macOS (x86_64) | `horn-macos-x86_64` |
-| macOS (Apple Silicon) | `horn-macos-aarch64` |
-| Windows (x86_64) | `horn-windows-x86_64.exe` |
+::: code-group
 
-```bash
-# Example: Linux x86_64
+```bash [macOS (Apple Silicon)]
+curl -sL https://github.com/focusring/horn/releases/latest/download/horn-macos-aarch64 \
+  -o /usr/local/bin/horn && chmod +x /usr/local/bin/horn
+```
+
+```bash [macOS (Intel)]
+curl -sL https://github.com/focusring/horn/releases/latest/download/horn-macos-x86_64 \
+  -o /usr/local/bin/horn && chmod +x /usr/local/bin/horn
+```
+
+```bash [Linux (x86_64)]
 curl -sL https://github.com/focusring/horn/releases/latest/download/horn-linux-x86_64 \
   -o /usr/local/bin/horn && chmod +x /usr/local/bin/horn
 ```
+
+```bash [Linux (aarch64)]
+curl -sL https://github.com/focusring/horn/releases/latest/download/horn-linux-aarch64 \
+  -o /usr/local/bin/horn && chmod +x /usr/local/bin/horn
+```
+
+```powershell [Windows]
+Invoke-WebRequest -Uri https://github.com/focusring/horn/releases/latest/download/horn-windows-x86_64.exe -OutFile horn.exe
+```
+
+:::
+
+Or download manually from [GitHub Releases](https://github.com/focusring/horn/releases/latest).
 
 ### From source
 
