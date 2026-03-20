@@ -147,9 +147,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli
-
       - name: Install Linux deps
         if: runner.os == 'Linux'
         run: |
@@ -165,7 +162,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: horn-desktop
-          tauriScript: cargo tauri
           args: ${{ matrix.args }}
 
       - name: Find built artifacts

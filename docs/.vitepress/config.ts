@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  base: '/horn/',
   title: 'Horn',
   description: 'Open-source PDF/UA accessibility checker based on the Matterhorn Protocol',
   head: [
