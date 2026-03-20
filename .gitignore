@@ -1,0 +1,4 @@
+/target
+horn-desktop/src-tauri/target/
+horn-desktop/src-tauri/gen/
+horn-wasm/pkg/

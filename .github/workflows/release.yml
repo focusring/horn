@@ -1,0 +1,252 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Run CI checks first ──
+  check:
+    uses: ./.github/workflows/ci.yml
+
+  # ── CLI Binaries ──
+  cli:
+    name: CLI (${{ matrix.name }})
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            name: horn-linux-x86_64
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            name: horn-linux-aarch64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            name: horn-macos-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: horn-macos-aarch64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: horn-windows-x86_64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get install -y musl-tools
+
+      - name: Install cross
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: cargo install cross
+
+      - name: Build (cross)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build (native)
+        if: matrix.target != 'aarch64-unknown-linux-musl'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary (unix)
+        if: runner.os != 'Windows'
+        run: cp target/${{ matrix.target }}/release/horn ${{ matrix.name }}
+
+      - name: Rename binary (windows)
+        if: runner.os == 'Windows'
+        run: cp target/${{ matrix.target }}/release/horn.exe ${{ matrix.name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+  # ── WASM Package ──
+  wasm:
+    name: WASM Package
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build WASM
+        run: wasm-pack build horn-wasm --target web --scope focusring
+
+      - name: Set version in package.json
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          jq --arg v "$VERSION" '.version = $v' horn-wasm/pkg/package.json > tmp.json && mv tmp.json horn-wasm/pkg/package.json
+
+      - name: Pack tarball
+        run: cd horn-wasm/pkg && npm pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: horn-wasm-pkg
+          path: horn-wasm/pkg/*.tgz
+
+      - name: Publish to npm
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > horn-wasm/pkg/.npmrc
+          cd horn-wasm/pkg && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ── Tauri Desktop App ──
+  desktop:
+    name: Desktop (${{ matrix.platform }})
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install Rust targets (macOS universal)
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: horn-desktop
+          tauriScript: cargo tauri
+          args: ${{ matrix.args }}
+
+      - name: Find built artifacts
+        id: artifacts
+        shell: bash
+        run: |
+          mkdir -p desktop-out
+          find horn-desktop/src-tauri/target -type f \( -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.msi" -o -name "*.exe" -o -name "*.app.tar.gz" \) -exec cp {} desktop-out/ \; 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: desktop-out/*
+
+  # ── Docs ──
+  docs:
+    name: Deploy Docs
+    needs: check
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: docs/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd docs && pnpm install --frozen-lockfile
+
+      - name: Build docs
+        run: cd docs && pnpm build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+
+  # ── Create GitHub Release with all artifacts ──
+  publish:
+    name: Publish Release
+    needs: [cli, wasm, desktop, docs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          # CLI binaries
+          for dir in artifacts/horn-*; do
+            [ -d "$dir" ] && cp "$dir"/* release/ 2>/dev/null || true
+          done
+          # Desktop installers
+          for dir in artifacts/desktop-*; do
+            [ -d "$dir" ] && cp "$dir"/* release/ 2>/dev/null || true
+          done
+          # WASM tarball
+          cp artifacts/horn-wasm-pkg/*.tgz release/ 2>/dev/null || true
+          ls -la release/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            **CLI**: Download a binary below, or `cargo install --git https://github.com/focusring/horn.git`
+            **Desktop**: Download the installer for your platform below
+            **npm (WASM)**: `npm install @focusring/horn-wasm`
+            **GitHub Action**: `uses: focusring/horn@v1`
+            **Docs**: https://focusring.github.io/horn/

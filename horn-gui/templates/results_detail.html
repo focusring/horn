@@ -1,0 +1,139 @@
+<div class="results-nav">
+    {% if show_back_btn %}
+    {% if let Some(bid) = batch_id %}
+    <button class="btn btn-secondary back-btn"
+            hx-get="/report/{{ bid }}"
+            hx-target="#results"
+            hx-swap="innerHTML">
+        &larr; Back to all results
+    </button>
+    {% endif %}
+    {% endif %}
+    <button class="btn btn-secondary back-btn new-scan-btn" onclick="document.getElementById('results').innerHTML=''; document.getElementById('file-input').value=''; document.getElementById('file-label').textContent='No files selected'; document.getElementById('upload-btn').disabled=true;">
+        Clear Results
+    </button>
+</div>
+
+{% for report in reports %}
+<section class="file-report">
+    <div class="file-header {% if report.compliant %}compliant{% else %}non-compliant{% endif %}">
+        <h2>{{ report.filename }}</h2>
+        <span class="badge {% if report.compliant %}badge-pass{% else %}badge-fail{% endif %}">
+            {% if report.compliant %}COMPLIANT{% else %}NON-COMPLIANT{% endif %}
+        </span>
+    </div>
+
+    {% if let Some(err) = report.error %}
+    <div class="error-banner">Parse error: {{ err }}</div>
+    {% endif %}
+
+    <div class="summary-bar">
+        <span class="stat stat-pass">{{ report.passed }} passed</span>
+        <span class="stat stat-fail">{{ report.failed }} failed</span>
+        <span class="stat stat-review">{{ report.needs_review }} needs review</span>
+    </div>
+
+    <!-- Charts section -->
+    {% if report.total_checks > 0 %}
+    <div class="charts-section">
+        <div class="chart-card">
+            <h3>Outcome</h3>
+            <div class="donut-chart">
+                <svg viewBox="0 0 36 36" class="donut-svg">
+                    <circle class="donut-ring" cx="18" cy="18" r="15.9155" />
+                    <circle class="donut-segment donut-pass" cx="18" cy="18" r="15.9155"
+                            stroke-dasharray="{{ report.donut.pass_pct }} {{ 100 - report.donut.pass_pct }}"
+                            stroke-dashoffset="25" />
+                    <circle class="donut-segment donut-fail" cx="18" cy="18" r="15.9155"
+                            stroke-dasharray="{{ report.donut.fail_pct }} {{ 100 - report.donut.fail_pct }}"
+                            stroke-dashoffset="{{ report.donut.fail_offset }}" />
+                    <circle class="donut-segment donut-review" cx="18" cy="18" r="15.9155"
+                            stroke-dasharray="{{ report.donut.review_pct }} {{ 100 - report.donut.review_pct }}"
+                            stroke-dashoffset="{{ report.donut.review_offset }}" />
+                    <circle class="donut-segment donut-na" cx="18" cy="18" r="15.9155"
+                            stroke-dasharray="{{ report.donut.na_pct }} {{ 100 - report.donut.na_pct }}"
+                            stroke-dashoffset="{{ report.donut.na_offset }}" />
+                </svg>
+                <div class="donut-center">{{ report.total_checks }}<br><small>checks</small></div>
+            </div>
+            <div class="chart-legend">
+                <span class="legend-item"><span class="legend-dot dot-pass"></span>Pass ({{ report.passed }})</span>
+                <span class="legend-item"><span class="legend-dot dot-fail"></span>Fail ({{ report.failed }})</span>
+                <span class="legend-item"><span class="legend-dot dot-review"></span>Review ({{ report.needs_review }})</span>
+                <span class="legend-item"><span class="legend-dot dot-na"></span>N/A ({{ report.total_checks - report.passed - report.failed - report.needs_review }})</span>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <h3>By Severity</h3>
+            <div class="severity-bars">
+                {% if report.errors_failed + report.errors_passed > 0 %}
+                <div class="sev-row">
+                    <span class="sev-label severity error">Error</span>
+                    <div class="sev-bar-track">
+                        <div class="sev-bar sev-bar-pass" style="width: {{ report.errors_passed * 100 / (report.errors_failed + report.errors_passed) }}%"></div>
+                        <div class="sev-bar sev-bar-fail" style="width: {{ report.errors_failed * 100 / (report.errors_failed + report.errors_passed) }}%"></div>
+                    </div>
+                    <span class="sev-count">{{ report.errors_failed }} / {{ report.errors_failed + report.errors_passed }}</span>
+                </div>
+                {% endif %}
+                {% if report.warnings_failed + report.warnings_passed > 0 %}
+                <div class="sev-row">
+                    <span class="sev-label severity warning">Warn</span>
+                    <div class="sev-bar-track">
+                        <div class="sev-bar sev-bar-pass" style="width: {{ report.warnings_passed * 100 / (report.warnings_failed + report.warnings_passed) }}%"></div>
+                        <div class="sev-bar sev-bar-fail" style="width: {{ report.warnings_failed * 100 / (report.warnings_failed + report.warnings_passed) }}%"></div>
+                    </div>
+                    <span class="sev-count">{{ report.warnings_failed }} / {{ report.warnings_failed + report.warnings_passed }}</span>
+                </div>
+                {% endif %}
+                {% if report.info_failed + report.info_passed > 0 %}
+                <div class="sev-row">
+                    <span class="sev-label severity info">Info</span>
+                    <div class="sev-bar-track">
+                        <div class="sev-bar sev-bar-pass" style="width: {{ report.info_passed * 100 / (report.info_failed + report.info_passed) }}%"></div>
+                        <div class="sev-bar sev-bar-fail" style="width: {{ report.info_failed * 100 / (report.info_failed + report.info_passed) }}%"></div>
+                    </div>
+                    <span class="sev-count">{{ report.info_failed }} / {{ report.info_failed + report.info_passed }}</span>
+                </div>
+                {% endif %}
+            </div>
+            <div class="chart-legend" style="margin-top: 0.75rem;">
+                <span class="legend-item"><span class="legend-dot dot-pass"></span>Passed</span>
+                <span class="legend-item"><span class="legend-dot dot-fail"></span>Failed</span>
+                <span class="sev-hint">failed / total</span>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if report.findings.is_empty() %}
+    <p class="all-clear">All checks passed.</p>
+    {% else %}
+    <table class="findings-table">
+        <thead>
+            <tr>
+                <th>Severity</th>
+                <th>Rule</th>
+                <th>CP</th>
+                <th>Description</th>
+                <th>Status</th>
+                <th>Details</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in report.findings %}
+            <tr class="row-{{ f.severity_class }}">
+                <td><span class="severity {{ f.severity_class }}">{{ f.severity }}</span></td>
+                <td class="mono">{{ f.rule_id }}</td>
+                <td>{{ f.checkpoint }}</td>
+                <td>{{ f.description }}</td>
+                <td>{{ f.outcome }}</td>
+                <td class="details">{{ f.message }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</section>
+{% endfor %}

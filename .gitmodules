@@ -1,0 +1,6 @@
+[submodule "tests/fixtures/verapdf-corpus"]
+	path = tests/fixtures/verapdf-corpus
+	url = https://github.com/veraPDF/veraPDF-corpus.git
+[submodule "tests/fixtures/pdfcheck"]
+	path = tests/fixtures/pdfcheck
+	url = https://github.com/jsnmrs/pdfcheck.git

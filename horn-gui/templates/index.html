@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Horn &mdash; PDF/UA Accessibility Checker</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script>
+        // Apply saved theme immediately to prevent flash
+        (function() {
+            var t = localStorage.getItem('horn-theme') || 'system';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+    <script src="/static/htmx.min.js"></script>
+</head>
+<body>
+    <header>
+        <div class="theme-toggle" role="radiogroup" aria-label="Color theme">
+            <button type="button" data-theme-value="light" aria-label="Light theme" title="Light">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            </button>
+            <button type="button" data-theme-value="system" aria-label="System theme" title="System">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </button>
+            <button type="button" data-theme-value="dark" aria-label="Dark theme" title="Dark">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            </button>
+        </div>
+        <h1>Horn</h1>
+        <p class="subtitle">PDF/UA Accessibility Checker</p>
+    </header>
+
+    <main>
+        <form id="upload-form"
+              hx-post="/validate"
+              hx-target="#results"
+              hx-swap="innerHTML"
+              hx-encoding="multipart/form-data"
+              hx-indicator="#spinner">
+
+            <div id="drop-zone"
+                 ondragover="event.preventDefault(); this.classList.add('dragover')"
+                 ondragleave="this.classList.remove('dragover')"
+                 ondrop="event.preventDefault(); this.classList.remove('dragover'); document.getElementById('file-input').files = event.dataTransfer.files; document.getElementById('file-label').textContent = event.dataTransfer.files.length + ' file(s) selected'; document.getElementById('upload-btn').disabled = false;">
+                <div class="drop-content">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <p>Drag &amp; drop PDF files here</p>
+                    <p class="or">or</p>
+                    <label class="btn btn-secondary file-select-btn">
+                        Choose Files
+                        <input type="file"
+                               id="file-input"
+                               name="file"
+                               accept=".pdf"
+                               multiple
+                               onchange="document.getElementById('file-label').textContent = this.files.length + ' file(s) selected'; document.getElementById('upload-btn').disabled = false;">
+                    </label>
+                    <p id="file-label" class="file-label">No files selected</p>
+                </div>
+            </div>
+
+            <button type="submit" id="upload-btn" class="btn btn-primary" disabled>
+                <span class="btn-text">Validate</span>
+                <span id="spinner" class="htmx-indicator spinner"></span>
+            </button>
+        </form>
+
+        <div id="results"></div>
+    </main>
+
+    <footer>
+        <p>Horn v0.1.0 &mdash; Open-source PDF/UA checker based on the Matterhorn Protocol</p>
+    </footer>
+
+    <script>
+        (function() {
+            var toggle = document.querySelector('.theme-toggle');
+            var current = localStorage.getItem('horn-theme') || 'system';
+
+            function setTheme(theme) {
+                current = theme;
+                document.documentElement.setAttribute('data-theme', theme);
+                localStorage.setItem('horn-theme', theme);
+                toggle.querySelectorAll('button').forEach(function(btn) {
+                    btn.classList.toggle('active', btn.getAttribute('data-theme-value') === theme);
+                });
+            }
+
+            toggle.addEventListener('click', function(e) {
+                var btn = e.target.closest('button[data-theme-value]');
+                if (btn) setTheme(btn.getAttribute('data-theme-value'));
+            });
+
+            setTheme(current);
+        })();
+    </script>
+</body>
+</html>

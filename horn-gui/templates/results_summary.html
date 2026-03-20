@@ -1,0 +1,42 @@
+<div class="results-nav">
+    <button class="btn btn-secondary back-btn new-scan-btn" onclick="document.getElementById('results').innerHTML=''; document.getElementById('file-input').value=''; document.getElementById('file-label').textContent='No files selected'; document.getElementById('upload-btn').disabled=true;">
+        Clear Results
+    </button>
+</div>
+<section class="batch-summary">
+    <div class="batch-header">
+        <h2>Batch Results</h2>
+        <div class="batch-stats">
+            <span class="stat">{{ total_files }} files</span>
+            <span class="stat stat-pass">{{ compliant_count }} compliant</span>
+            <span class="stat stat-fail">{{ non_compliant_count }} non-compliant</span>
+        </div>
+    </div>
+
+    <ul class="file-list">
+        {% for report in reports %}
+        <li class="file-card {% if report.compliant %}file-card-pass{% else %}file-card-fail{% endif %}"
+            hx-get="/report/{{ batch_id }}/{{ report.index }}"
+            hx-target="#results"
+            hx-swap="innerHTML">
+            <div class="file-card-main">
+                <span class="file-card-name">{{ report.filename }}</span>
+                <span class="badge {% if report.compliant %}badge-pass{% else %}badge-fail{% endif %}">
+                    {% if report.compliant %}PASS{% else %}FAIL{% endif %}
+                </span>
+            </div>
+            {% if let Some(err) = report.error %}
+            <div class="file-card-error">{{ err }}</div>
+            {% else %}
+            <div class="file-card-stats">
+                <span class="stat-mini stat-pass">{{ report.passed }} passed</span>
+                <span class="stat-mini stat-fail">{{ report.failed }} failed</span>
+                {% if report.needs_review > 0 %}
+                <span class="stat-mini stat-review">{{ report.needs_review }} review</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</section>

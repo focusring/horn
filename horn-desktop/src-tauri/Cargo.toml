@@ -1,0 +1,21 @@
+[package]
+name = "horn-desktop"
+version = "0.1.0"
+edition = "2024"
+description = "Desktop GUI for Horn PDF/UA accessibility checker"
+license = "MIT OR Apache-2.0"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+horn = { path = "../..", default-features = false }
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync"] }
+
+[lints.rust]
+unsafe_code = "forbid"

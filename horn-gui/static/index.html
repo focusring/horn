@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Horn — PDF/UA Accessibility Checker</title>
+    <link rel="stylesheet" href="/style.css">
+    <script>
+        (function() {
+            var t = localStorage.getItem('horn-theme') || 'system';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+</head>
+<body>
+    <header>
+        <div class="theme-toggle" role="radiogroup" aria-label="Color theme">
+            <button type="button" data-theme-value="light" aria-label="Light theme" title="Light">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            </button>
+            <button type="button" data-theme-value="system" aria-label="System theme" title="System">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </button>
+            <button type="button" data-theme-value="dark" aria-label="Dark theme" title="Dark">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            </button>
+        </div>
+        <h1>Horn</h1>
+        <p class="subtitle">PDF/UA Accessibility Checker</p>
+    </header>
+
+    <main>
+        <form id="upload-form">
+            <div id="drop-zone">
+                <div class="drop-content">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <p>Drag &amp; drop PDF files here</p>
+                    <p class="or">or</p>
+                    <label class="btn btn-secondary file-select-btn">
+                        Choose Files
+                        <input type="file" id="file-input" accept=".pdf" multiple>
+                    </label>
+                    <p id="file-label" class="file-label">No files selected</p>
+                </div>
+            </div>
+
+            <button type="submit" id="upload-btn" class="btn btn-primary" disabled>
+                <span class="btn-text">Validate</span>
+                <span id="spinner" class="spinner"></span>
+            </button>
+        </form>
+
+        <div id="results"></div>
+    </main>
+
+    <footer>
+        <p>Horn v0.1.0 — Open-source PDF/UA checker based on the Matterhorn Protocol</p>
+    </footer>
+
+    <script type="module">
+
+        // -- Theme toggle -------------------------------------------------
+        (function() {
+            var toggle = document.querySelector('.theme-toggle');
+            var current = localStorage.getItem('horn-theme') || 'system';
+            function setTheme(theme) {
+                current = theme;
+                document.documentElement.setAttribute('data-theme', theme);
+                localStorage.setItem('horn-theme', theme);
+                toggle.querySelectorAll('button').forEach(function(btn) {
+                    btn.classList.toggle('active', btn.getAttribute('data-theme-value') === theme);
+                });
+            }
+            toggle.addEventListener('click', function(e) {
+                var btn = e.target.closest('button[data-theme-value]');
+                if (btn) setTheme(btn.getAttribute('data-theme-value'));
+            });
+            setTheme(current);
+        })();
+
+        // -- Worker-based WASM validation ---------------------------------
+        const worker = new Worker('/worker.js', { type: 'module' });
+        let nextId = 0;
+        const pending = new Map();
+
+        worker.onmessage = function(e) {
+            const { id, report, ms, name } = e.data;
+            console.log(name + ': ' + ms + 'ms');
+            const resolve = pending.get(id);
+            if (resolve) { pending.delete(id); resolve(report); }
+        };
+
+        function validateAsync(name, data) {
+            return new Promise(function(resolve) {
+                const id = nextId++;
+                pending.set(id, resolve);
+                worker.postMessage({ id, name, data }, [data.buffer]);
+            });
+        }
+
+        const form = document.getElementById('upload-form');
+        const fileInput = document.getElementById('file-input');
+        const fileLabel = document.getElementById('file-label');
+        const uploadBtn = document.getElementById('upload-btn');
+        const spinner = document.getElementById('spinner');
+        const resultsEl = document.getElementById('results');
+        const dropZone = document.getElementById('drop-zone');
+
+        // -- File selection -----------------------------------------------
+        function updateFileLabel() {
+            const n = fileInput.files.length;
+            fileLabel.textContent = n > 0 ? n + ' file(s) selected' : 'No files selected';
+            uploadBtn.disabled = n === 0;
+        }
+        fileInput.addEventListener('change', updateFileLabel);
+
+        dropZone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', function() {
+            dropZone.classList.remove('dragover');
+        });
+        dropZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            fileInput.files = e.dataTransfer.files;
+            updateFileLabel();
+        });
+
+        // -- Validation ---------------------------------------------------
+        var allReports = [];
+
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const files = fileInput.files;
+            if (!files.length) return;
+
+            uploadBtn.disabled = true;
+            spinner.style.display = 'inline-block';
+            spinner.style.animation = 'spin 0.6s linear infinite';
+            resultsEl.innerHTML = '';
+            allReports = [];
+
+            for (const file of files) {
+                const buf = await file.arrayBuffer();
+                const report = await validateAsync(file.name, new Uint8Array(buf));
+                allReports.push(report);
+            }
+
+            spinner.style.display = 'none';
+            uploadBtn.disabled = false;
+
+            if (allReports.length === 1) {
+                resultsEl.innerHTML = renderDetail(allReports, false);
+            } else {
+                resultsEl.innerHTML = renderSummary(allReports);
+            }
+        });
+
+        // -- Clear / navigation -------------------------------------------
+        function clearResults() {
+            resultsEl.innerHTML = '';
+            fileInput.value = '';
+            fileLabel.textContent = 'No files selected';
+            uploadBtn.disabled = true;
+            allReports = [];
+        }
+
+        function showDetail(index) {
+            resultsEl.innerHTML = renderDetail([allReports[index]], true);
+        }
+
+        function showSummary() {
+            resultsEl.innerHTML = renderSummary(allReports);
+        }
+
+        // Expose to onclick handlers
+        window.clearResults = clearResults;
+        window.showDetail = showDetail;
+        window.showSummary = showSummary;
+
+        // -- Rendering helpers --------------------------------------------
+        function esc(s) {
+            var d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function pct(n, total) {
+            return total > 0 ? Math.round(n * 100 / total) : 0;
+        }
+
+        function countByOutcome(results) {
+            var passed = 0, failed = 0, review = 0, na = 0;
+            for (var r of results) {
+                switch (r.outcome.status) {
+                    case 'Pass': passed++; break;
+                    case 'Fail': failed++; break;
+                    case 'NeedsReview': review++; break;
+                    case 'NotApplicable': na++; break;
+                }
+            }
+            return { passed, failed, review, na, total: results.length };
+        }
+
+        function severityBreakdown(results) {
+            var s = { errors_f: 0, errors_p: 0, warnings_f: 0, warnings_p: 0, info_f: 0, info_p: 0 };
+            for (var r of results) {
+                var fail = r.outcome.status === 'Fail';
+                switch (r.severity) {
+                    case 'error':
+                        fail ? s.errors_f++ : s.errors_p++; break;
+                    case 'warning':
+                        fail ? s.warnings_f++ : s.warnings_p++; break;
+                    case 'info':
+                        fail ? s.info_f++ : s.info_p++; break;
+                }
+            }
+            return s;
+        }
+
+        function renderDetail(reports, showBack) {
+            var html = '<div class="results-nav">';
+            if (showBack) {
+                html += '<button class="btn btn-secondary back-btn" onclick="showSummary()">&larr; Back to all results</button>';
+            }
+            html += '<button class="btn btn-secondary back-btn new-scan-btn" onclick="clearResults()">Clear Results</button></div>';
+
+            for (var report of reports) {
+                var c = countByOutcome(report.results);
+                var compliant = !report.error && c.failed === 0;
+                var sev = severityBreakdown(report.results);
+
+                html += '<section class="file-report">';
+                html += '<div class="file-header">';
+                html += '<h2>' + esc(report.path) + '</h2>';
+                html += '<span class="badge ' + (compliant ? 'badge-pass' : 'badge-fail') + '">' + (compliant ? 'COMPLIANT' : 'NON-COMPLIANT') + '</span>';
+                html += '</div>';
+
+                if (report.error) {
+                    html += '<div class="error-banner">Parse error: ' + esc(report.error) + '</div>';
+                }
+
+                html += '<div class="summary-bar">';
+                html += '<span class="stat stat-pass">' + c.passed + ' passed</span>';
+                html += '<span class="stat stat-fail">' + c.failed + ' failed</span>';
+                html += '<span class="stat stat-review">' + c.review + ' needs review</span>';
+                html += '</div>';
+
+                // Charts
+                if (c.total > 0) {
+                    var pp = pct(c.passed, c.total), fp = pct(c.failed, c.total), rp = pct(c.review, c.total), np = 100 - pp - fp - rp;
+                    html += '<div class="charts-section"><div class="chart-card"><h3>Outcome</h3>';
+                    html += '<div class="donut-chart"><svg viewBox="0 0 36 36" class="donut-svg">';
+                    html += '<circle class="donut-ring" cx="18" cy="18" r="15.9155" />';
+                    html += '<circle class="donut-segment donut-pass" cx="18" cy="18" r="15.9155" stroke-dasharray="' + pp + ' ' + (100 - pp) + '" stroke-dashoffset="25" />';
+                    html += '<circle class="donut-segment donut-fail" cx="18" cy="18" r="15.9155" stroke-dasharray="' + fp + ' ' + (100 - fp) + '" stroke-dashoffset="' + (25 - pp) + '" />';
+                    html += '<circle class="donut-segment donut-review" cx="18" cy="18" r="15.9155" stroke-dasharray="' + rp + ' ' + (100 - rp) + '" stroke-dashoffset="' + (25 - pp - fp) + '" />';
+                    html += '<circle class="donut-segment donut-na" cx="18" cy="18" r="15.9155" stroke-dasharray="' + np + ' ' + (100 - np) + '" stroke-dashoffset="' + (25 - pp - fp - rp) + '" />';
+                    html += '</svg><div class="donut-center">' + c.total + '<br><small>checks</small></div></div>';
+                    html += '<div class="chart-legend">';
+                    html += '<span class="legend-item"><span class="legend-dot dot-pass"></span>Pass (' + c.passed + ')</span>';
+                    html += '<span class="legend-item"><span class="legend-dot dot-fail"></span>Fail (' + c.failed + ')</span>';
+                    html += '<span class="legend-item"><span class="legend-dot dot-review"></span>Review (' + c.review + ')</span>';
+                    html += '<span class="legend-item"><span class="legend-dot dot-na"></span>N/A (' + c.na + ')</span>';
+                    html += '</div></div>';
+
+                    // Severity bars
+                    html += '<div class="chart-card"><h3>By Severity</h3><div class="severity-bars">';
+                    html += sevBar('error', 'Error', sev.errors_f, sev.errors_p);
+                    html += sevBar('warning', 'Warn', sev.warnings_f, sev.warnings_p);
+                    html += sevBar('info', 'Info', sev.info_f, sev.info_p);
+                    html += '</div>';
+                    html += '<div class="chart-legend" style="margin-top:0.75rem"><span class="legend-item"><span class="legend-dot dot-pass"></span>Passed</span><span class="legend-item"><span class="legend-dot dot-fail"></span>Failed</span><span class="sev-hint">failed / total</span></div>';
+                    html += '</div></div>';
+                }
+
+                // Findings table
+                var findings = report.results.filter(function(r) {
+                    return r.outcome.status !== 'Pass' && r.outcome.status !== 'NotApplicable';
+                });
+                if (findings.length === 0) {
+                    html += '<p class="all-clear">All checks passed.</p>';
+                } else {
+                    html += '<table class="findings-table"><thead><tr><th>Severity</th><th>Rule</th><th>CP</th><th>Description</th><th>Status</th><th>Details</th></tr></thead><tbody>';
+                    for (var f of findings) {
+                        var sevClass = f.severity;
+                        var outcome = f.outcome.status;
+                        var message = '';
+                        if (f.outcome.status === 'Fail') {
+                            message = f.outcome.message || '';
+                            if (f.outcome.location) {
+                                var parts = [];
+                                if (f.outcome.location.page) parts.push('page ' + f.outcome.location.page);
+                                if (f.outcome.location.element) parts.push(f.outcome.location.element);
+                                if (parts.length) message += ' (' + parts.join(', ') + ')';
+                            }
+                        } else if (f.outcome.status === 'NeedsReview') {
+                            outcome = 'Needs Review';
+                            message = f.outcome.reason || '';
+                        }
+                        html += '<tr class="row-' + sevClass + '"><td><span class="severity ' + sevClass + '">' + esc(f.severity) + '</span></td>';
+                        html += '<td class="mono">' + esc(f.rule_id) + '</td>';
+                        html += '<td>' + f.checkpoint + '</td>';
+                        html += '<td>' + esc(f.description) + '</td>';
+                        html += '<td>' + esc(outcome) + '</td>';
+                        html += '<td class="details">' + esc(message) + '</td></tr>';
+                    }
+                    html += '</tbody></table>';
+                }
+                html += '</section>';
+            }
+            return html;
+        }
+
+        function sevBar(cls, label, failed, passed) {
+            var total = failed + passed;
+            if (total === 0) return '';
+            var pPct = Math.round(passed * 100 / total);
+            var fPct = Math.round(failed * 100 / total);
+            return '<div class="sev-row"><span class="sev-label severity ' + cls + '">' + label + '</span>' +
+                '<div class="sev-bar-track"><div class="sev-bar sev-bar-pass" style="width:' + pPct + '%"></div>' +
+                '<div class="sev-bar sev-bar-fail" style="width:' + fPct + '%"></div></div>' +
+                '<span class="sev-count">' + failed + ' / ' + total + '</span></div>';
+        }
+
+        function renderSummary(reports) {
+            var compliant = reports.filter(function(r) { return !r.error && countByOutcome(r.results).failed === 0; }).length;
+            var html = '<div class="results-nav"><button class="btn btn-secondary back-btn new-scan-btn" onclick="clearResults()">Clear Results</button></div>';
+            html += '<section class="batch-summary"><div class="batch-header"><h2>Batch Results</h2><div class="batch-stats">';
+            html += '<span class="stat">' + reports.length + ' files</span>';
+            html += '<span class="stat stat-pass">' + compliant + ' compliant</span>';
+            html += '<span class="stat stat-fail">' + (reports.length - compliant) + ' non-compliant</span>';
+            html += '</div></div><ul class="file-list">';
+
+            for (var i = 0; i < reports.length; i++) {
+                var r = reports[i];
+                var c = countByOutcome(r.results);
+                var ok = !r.error && c.failed === 0;
+                html += '<li class="file-card ' + (ok ? 'file-card-pass' : 'file-card-fail') + '" onclick="showDetail(' + i + ')" style="cursor:pointer">';
+                html += '<div class="file-card-main"><span class="file-card-name">' + esc(r.path) + '</span>';
+                html += '<span class="badge ' + (ok ? 'badge-pass' : 'badge-fail') + '">' + (ok ? 'PASS' : 'FAIL') + '</span></div>';
+                if (r.error) {
+                    html += '<div class="file-card-error">' + esc(r.error) + '</div>';
+                } else {
+                    html += '<div class="file-card-stats"><span class="stat-mini stat-pass">' + c.passed + ' passed</span>';
+                    html += '<span class="stat-mini stat-fail">' + c.failed + ' failed</span>';
+                    if (c.review > 0) html += '<span class="stat-mini stat-review">' + c.review + ' review</span>';
+                    html += '</div>';
+                }
+                html += '</li>';
+            }
+            html += '</ul></section>';
+            return html;
+        }
+    </script>
+</body>
+</html>

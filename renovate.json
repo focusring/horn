@@ -1,0 +1,50 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":automergeMinor",
+    "schedule:weekly"
+  ],
+  "labels": ["dependencies"],
+  "cargo": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Group all non-major Rust dependency updates",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch",
+      "automerge": true
+    },
+    {
+      "description": "Major Rust dependency updates (require manual review)",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Group Tauri-related dependencies",
+      "matchManagers": ["cargo"],
+      "matchPackagePatterns": ["^tauri"],
+      "groupName": "tauri dependencies",
+      "groupSlug": "tauri"
+    },
+    {
+      "description": "Group PDF parser dependencies",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["pdf_oxide", "lopdf"],
+      "groupName": "pdf parser dependencies",
+      "groupSlug": "pdf-parsers",
+      "automerge": false
+    }
+  ],
+  "ignoreDeps": [],
+  "postUpdateOptions": ["gomodTidy"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on monday"]
+  }
+}
