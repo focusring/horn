@@ -116,12 +116,11 @@ jobs:
           path: horn-wasm/pkg/*.tgz
 
       - name: Publish to npm
-        if: ${{ secrets.NPM_TOKEN != '' }}
         run: |
-          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > horn-wasm/pkg/.npmrc
+          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > horn-wasm/pkg/.npmrc
           cd horn-wasm/pkg && npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ── Tauri Desktop App ──
   desktop:
