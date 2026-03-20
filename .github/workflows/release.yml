@@ -128,6 +128,7 @@ jobs:
     name: Desktop (${{ matrix.platform }})
     needs: check
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: macos-latest
@@ -145,6 +146,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli
 
       - name: Install Linux deps
         if: runner.os == 'Linux'
