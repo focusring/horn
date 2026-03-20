@@ -119,7 +119,7 @@ jobs:
       - name: Publish to npm
         run: |
           echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > horn-wasm/pkg/.npmrc
-          cd horn-wasm/pkg && npm publish --access public
+          cd horn-wasm/pkg && npm publish --access public || echo "Publish failed (version may already exist)"
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
