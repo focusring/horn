@@ -169,12 +169,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p desktop-out
-          find horn-desktop/src-tauri/target -type f \( -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.msi" -o -name "*.exe" -o -name "*.app.tar.gz" \) -exec cp {} desktop-out/ \; 2>/dev/null || true
+          find target -type f \( -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.msi" -o -name "*.app.tar.gz" \) -exec cp {} desktop-out/ \; 2>/dev/null || true
+          ls -la desktop-out/
 
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.platform }}
           path: desktop-out/*
+          if-no-files-found: warn
 
   # ── Docs ──
   docs:
