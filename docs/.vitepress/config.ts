@@ -2,6 +2,12 @@ import { defineConfig } from 'vitepress'
 import pkg from '../package.json'
 
 export default defineConfig({
+  markdown: {
+    theme: {
+      light: 'github-light-high-contrast',
+      dark: 'github-dark-high-contrast',
+    },
+  },
   base: '/',
   title: 'Horn',
   description: 'Open-source PDF/UA accessibility checker based on the Matterhorn Protocol',
