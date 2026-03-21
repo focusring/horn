@@ -429,7 +429,7 @@ const totalWarnings = computed(() =>
 }
 
 .count-error {
-  color: var(--vp-c-danger-3);
+  color: var(--vp-c-danger-1);
 }
 
 .count-warning {
@@ -487,14 +487,14 @@ const totalWarnings = computed(() =>
 }
 
 .status-fail {
-  background: color-mix(in srgb, var(--vp-c-danger-3) 15%, transparent);
-  color: var(--vp-c-danger-3);
+  background: color-mix(in srgb, var(--vp-c-danger-1) 15%, transparent);
+  color: var(--vp-c-danger-1);
 }
 
 .error-box {
   padding: 0.75rem 1rem;
-  color: var(--vp-c-danger-3);
-  background: color-mix(in srgb, var(--vp-c-danger-3) 8%, transparent);
+  color: var(--vp-c-danger-1);
+  background: color-mix(in srgb, var(--vp-c-danger-1) 8%, transparent);
   font-size: 0.875rem;
 }
 
