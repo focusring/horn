@@ -127,12 +127,12 @@ function severityIcon(severity: string) {
 
 function standardLabel(standard: string) {
   switch (standard) {
-    case 'pdf-ua-1':
+    case 'ua1':
       return 'PDF/UA-1'
-    case 'pdf-ua-2':
+    case 'ua2':
       return 'PDF/UA-2'
     default:
-      return 'Unknown standard'
+      return standard || 'Unknown standard'
   }
 }
 
@@ -162,7 +162,7 @@ const totalWarnings = computed(() =>
       Loading Horn WASM module...
     </div>
 
-    <div v-if="error && !wasmReady" class="error-box">
+    <div v-if="error && !wasmReady" class="error-box" role="alert">
       {{ error }}
     </div>
 
@@ -281,7 +281,8 @@ const totalWarnings = computed(() =>
 
 <style scoped>
 .horn-demo {
-  margin-top: 1.5rem;
+  max-width: 688px;
+  margin: 1.5rem auto 0;
 }
 
 .loading-wasm {
@@ -317,7 +318,7 @@ const totalWarnings = computed(() =>
 }
 
 .drop-content svg {
-  color: var(--vp-c-text-3);
+  color: var(--vp-c-text-2);
   margin-bottom: 0.75rem;
 }
 
@@ -328,13 +329,13 @@ const totalWarnings = computed(() =>
 }
 
 .drop-or {
-  color: var(--vp-c-text-3);
+  color: var(--vp-c-text-2);
   margin: 0.5rem 0;
   font-size: 0.875rem;
 }
 
 .drop-note {
-  color: var(--vp-c-text-3);
+  color: var(--vp-c-text-2);
   font-size: 0.8rem;
   margin-top: 0.75rem;
   margin-bottom: 0;
@@ -343,7 +344,7 @@ const totalWarnings = computed(() =>
 .file-btn {
   display: inline-block;
   padding: 0.5rem 1.25rem;
-  background: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-3);
   color: var(--vp-c-white);
   border-radius: 8px;
   font-weight: 500;
@@ -353,6 +354,11 @@ const totalWarnings = computed(() =>
 
 .file-btn:hover {
   background: var(--vp-c-brand-2);
+}
+
+.file-btn:focus-within {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
 }
 
 .file-btn input {
@@ -397,15 +403,15 @@ const totalWarnings = computed(() =>
 }
 
 .count-error {
-  color: var(--vp-c-danger-1);
+  color: var(--vp-c-danger-3);
 }
 
 .count-warning {
-  color: var(--vp-c-warning-1);
+  color: var(--vp-c-warning-3);
 }
 
 .count-pass {
-  color: var(--vp-c-green-1);
+  color: var(--vp-c-green-3);
 }
 
 .file-report {
@@ -436,7 +442,7 @@ const totalWarnings = computed(() =>
 }
 
 .file-standard {
-  color: var(--vp-c-text-3);
+  color: var(--vp-c-text-2);
   font-size: 0.8rem;
   font-weight: 400;
 }
@@ -450,19 +456,19 @@ const totalWarnings = computed(() =>
 }
 
 .status-pass {
-  background: color-mix(in srgb, var(--vp-c-green-1) 15%, transparent);
-  color: var(--vp-c-green-1);
+  background: color-mix(in srgb, var(--vp-c-green-3) 15%, transparent);
+  color: var(--vp-c-green-3);
 }
 
 .status-fail {
-  background: color-mix(in srgb, var(--vp-c-danger-1) 15%, transparent);
-  color: var(--vp-c-danger-1);
+  background: color-mix(in srgb, var(--vp-c-danger-3) 15%, transparent);
+  color: var(--vp-c-danger-3);
 }
 
 .error-box {
   padding: 0.75rem 1rem;
-  color: var(--vp-c-danger-1);
-  background: color-mix(in srgb, var(--vp-c-danger-1) 8%, transparent);
+  color: var(--vp-c-danger-3);
+  background: color-mix(in srgb, var(--vp-c-danger-3) 8%, transparent);
   font-size: 0.875rem;
 }
 
@@ -514,14 +520,14 @@ const totalWarnings = computed(() =>
 }
 
 .location {
-  color: var(--vp-c-text-3);
+  color: var(--vp-c-text-2);
   font-size: 0.8rem;
 }
 
 .all-pass {
   padding: 1rem;
   text-align: center;
-  color: var(--vp-c-green-1);
+  color: var(--vp-c-green-3);
   font-weight: 500;
 }
 

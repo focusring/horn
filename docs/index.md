@@ -2,6 +2,9 @@
 layout: home
 
 hero:
+  image:
+    src: /logo.svg
+    alt: Horn logo
   name: Horn
   text: PDF accessibility testing at scale
   tagline: "Open-source PDF/UA checker based on the Matterhorn Protocol — v0.1.0"
@@ -38,6 +41,11 @@ features:
 ---
 
 <style>
+.VPHero .VPImage {
+  max-width: 240px;
+  max-height: 240px;
+}
+
 .benchmark {
   max-width: 688px;
   margin: 4rem auto 0;
