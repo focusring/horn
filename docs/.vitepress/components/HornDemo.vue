@@ -261,8 +261,7 @@ const totalWarnings = computed(() =>
               <tr>
                 <th>Status</th>
                 <th>Rule</th>
-                <th>Description</th>
-                <th>Details</th>
+                <th>Issue</th>
               </tr>
             </thead>
             <tbody>
@@ -273,14 +272,14 @@ const totalWarnings = computed(() =>
               >
                 <td class="col-status" data-label="Status"><span aria-hidden="true">{{ severityIcon(result.severity) }}</span><span class="visually-hidden">{{ result.severity }}</span></td>
                 <td class="col-rule" data-label="Rule"><code>{{ result.rule_id }}</code></td>
-                <td class="col-desc" data-label="Description">{{ result.description }}</td>
-                <td class="col-detail" data-label="Details">
+                <td class="col-issue" data-label="Issue">
                   <template v-if="result.outcome.status === 'Fail'">
                     {{ result.outcome.message }}
                     <span v-if="result.outcome.location?.page" class="location">
                       (page {{ result.outcome.location.page }})
                     </span>
                   </template>
+                  <template v-else>{{ result.description }}</template>
                 </td>
               </tr>
             </tbody>
