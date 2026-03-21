@@ -5,7 +5,7 @@ export default defineConfig({
   title: 'Horn',
   description: 'Open-source PDF/UA accessibility checker based on the Matterhorn Protocol',
   head: [
-    ['link', { rel: 'icon', href: '/horn/favicon.ico', type: 'image/x-icon' }],
+    ['link', { rel: 'icon', href: '/favicon.ico', type: 'image/x-icon' }],
     ['meta', { name: 'theme-color', content: '#f97316' }],
   ],
   themeConfig: {
