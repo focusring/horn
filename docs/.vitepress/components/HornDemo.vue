@@ -303,7 +303,7 @@ const totalWarnings = computed(() =>
 .drop-zone:hover,
 .drop-zone.dragging {
   border-color: var(--vp-c-brand-1);
-  background: var(--vp-c-brand-soft);
+  background: var(--vp-c-bg-soft);
 }
 
 .drop-zone.disabled {
