@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 import pkg from '../package.json'
 
 export default defineConfig({
-  base: '/horn/',
+  base: process.env.VERCEL ? '/' : '/horn/',
   title: 'Horn',
   description: 'Open-source PDF/UA accessibility checker based on the Matterhorn Protocol',
   head: [
