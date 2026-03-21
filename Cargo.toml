@@ -51,6 +51,7 @@ rayon = { version = "1", optional = true }
 walkdir = { version = "2", optional = true }
 indicatif = { version = "0.17", optional = true }
 env_logger = { version = "0.11", optional = true }
+ttf-parser = { version = "0.25.1", default-features = false }
 
 [dev-dependencies]
 walkdir = "2"
