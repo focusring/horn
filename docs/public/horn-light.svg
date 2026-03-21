@@ -1,0 +1,9 @@
+<svg width="1300" height="500" viewBox="0 0 1300 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(75, 75) scale(14.583)">
+    <path d="M14 3V7C14 7.26522 14.1054 7.51957 14.2929 7.70711C14.4804 7.89464 14.7348 8 15 8H19" stroke="white" stroke-width="1.88" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M5 12V5C5 4.46957 5.21071 3.96086 5.58579 3.58579C5.96086 3.21071 6.46957 3 7 3H14L19 8V12" stroke="white" stroke-width="1.88" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M6.0607 21.0017H18.0589L13.4456 11.2618C13.3214 10.9994 13.1252 10.7776 12.8799 10.6223C12.6346 10.4669 12.3502 10.3845 12.0598 10.3845C11.7694 10.3845 11.485 10.4669 11.2397 10.6223C10.9944 10.7776 10.7982 10.9994 10.674 11.2618L6.0607 21.0017Z" stroke="white" stroke-width="1.88" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M9.06024 15.0026L10.3934 16.669L12.0598 15.0026L13.3929 17.0023L15.0593 15.6692" stroke="white" stroke-width="1.88" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="510" y="355" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="310" font-weight="700" fill="white" letter-spacing="-5">Horn</text>
+</svg>

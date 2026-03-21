@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/public/horn-dark.svg" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/public/horn-light.svg" />
+    <img src="docs/public/horn-dark.svg" alt="Horn logo" width="360" height="138" />
+  </picture>
+</p>
+
 # Horn
 
 Open-source PDF/UA accessibility checker based on the Matterhorn Protocol.
@@ -146,9 +154,4 @@ horn validate tests/fixtures/verapdf-corpus/PDF_UA-1/ --recurse
 
 ## License
 
-Licensed under either of:
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT License ([LICENSE-MIT](LICENSE-MIT))
-
-at your option.
+Licensed under the [MIT License](LICENSE).

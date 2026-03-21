@@ -19,7 +19,7 @@ Validate PDF files against PDF/UA-1 directly in your browser. Horn runs as WebAs
 
 <style>
 .demo-page {
-  max-width: 688px;
+  max-width: 988px;
   margin: 0 auto;
   padding: 2rem 1.5rem;
 }
@@ -35,5 +35,15 @@ Validate PDF files against PDF/UA-1 directly in your browser. Horn runs as WebAs
   font-size: 1rem;
   line-height: 1.6;
   margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .demo-page {
+    padding: 1.5rem 1rem;
+  }
+
+  .demo-page h1 {
+    font-size: 1.5rem;
+  }
 }
 </style>

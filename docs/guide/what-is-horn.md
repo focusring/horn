@@ -49,4 +49,4 @@ Horn is available as:
 
 ## License
 
-Horn is dual-licensed under MIT and Apache 2.0 — use whichever fits your project.
+Horn is licensed under the MIT license.

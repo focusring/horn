@@ -26,6 +26,7 @@ const dragging = ref(false)
 const reports = ref<FileReport[]>([])
 const error = ref<string | null>(null)
 const processingTime = ref<number | null>(null)
+const liveAnnouncement = ref('')
 
 let validateFn: (name: string, data: Uint8Array) => FileReport
 
@@ -91,6 +92,18 @@ function handleFiles(files: FileList | File[]) {
         processingTime.value = Math.round(performance.now() - start)
         reports.value = results
         loading.value = false
+
+        const errors = results.reduce((sum, r) => sum + countBySeverity(r.results, 'error'), 0)
+        const warnings = results.reduce((sum, r) => sum + countBySeverity(r.results, 'warning'), 0)
+        const parts = [`Validated ${results.length} file${results.length !== 1 ? 's' : ''} in ${processingTime.value}ms.`]
+        if (errors > 0) parts.push(`${errors} error${errors !== 1 ? 's' : ''}`)
+        if (warnings > 0) parts.push(`${warnings} warning${warnings !== 1 ? 's' : ''}`)
+        if (errors === 0 && warnings === 0) parts.push('All checks passed')
+
+        liveAnnouncement.value = ''
+        requestAnimationFrame(() => {
+          liveAnnouncement.value = parts.join('. ')
+        })
       })
     } catch (e) {
       error.value = String(e)
@@ -158,6 +171,8 @@ const totalWarnings = computed(() =>
 
 <template>
   <div class="horn-demo">
+    <div role="alert" class="visually-hidden">{{ liveAnnouncement }}</div>
+
     <div v-if="!wasmReady && !error" class="loading-wasm">
       Loading Horn WASM module...
     </div>
@@ -189,10 +204,11 @@ const totalWarnings = computed(() =>
               accept=".pdf"
               multiple
               :disabled="loading"
+              aria-describedby="drop-note"
               @change="onFileInput"
             />
           </label>
-          <p class="drop-note">Files are validated locally in your browser. Nothing is uploaded.</p>
+          <p id="drop-note" class="drop-note">Files are validated locally in your browser. Nothing is uploaded.</p>
         </div>
       </div>
 
@@ -255,10 +271,10 @@ const totalWarnings = computed(() =>
                 :key="i"
                 :class="`severity-${result.severity}`"
               >
-                <td class="col-status">{{ severityIcon(result.severity) }}</td>
-                <td class="col-rule"><code>{{ result.rule_id }}</code></td>
-                <td class="col-desc">{{ result.description }}</td>
-                <td class="col-detail">
+                <td class="col-status" data-label="Status"><span aria-hidden="true">{{ severityIcon(result.severity) }}</span><span class="visually-hidden">{{ result.severity }}</span></td>
+                <td class="col-rule" data-label="Rule"><code>{{ result.rule_id }}</code></td>
+                <td class="col-desc" data-label="Description">{{ result.description }}</td>
+                <td class="col-detail" data-label="Details">
                   <template v-if="result.outcome.status === 'Fail'">
                     {{ result.outcome.message }}
                     <span v-if="result.outcome.location?.page" class="location">
@@ -281,8 +297,18 @@ const totalWarnings = computed(() =>
 
 <style scoped>
 .horn-demo {
-  max-width: 688px;
+  max-width: 888px;
   margin: 1.5rem auto 0;
+}
+
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .loading-wasm {
@@ -549,5 +575,79 @@ const totalWarnings = computed(() =>
 .clear-btn:hover {
   border-color: var(--vp-c-text-3);
   color: var(--vp-c-text-1);
+}
+
+@media (max-width: 640px) {
+  .drop-zone {
+    padding: 1.5rem 1rem;
+  }
+
+  .drop-text {
+    font-size: 1rem;
+  }
+
+  .results-summary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .file-report summary {
+    gap: 0.5rem;
+  }
+
+  .file-name {
+    font-size: 0.8rem;
+    word-break: break-all;
+  }
+
+  .file-status {
+    margin-left: 0;
+  }
+
+  .results-table thead {
+    display: none;
+  }
+
+  .results-table,
+  .results-table tbody,
+  .results-table tr,
+  .results-table td {
+    display: block;
+  }
+
+  .results-table tr {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--vp-c-divider);
+  }
+
+  .results-table tr:last-child {
+    border-bottom: none;
+  }
+
+  .results-table td {
+    padding: 0.15rem 0;
+    border-bottom: none;
+    text-align: left;
+  }
+
+  .results-table td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--vp-c-text-2);
+    margin-bottom: 0.1rem;
+  }
+
+  .col-status {
+    width: auto;
+    text-align: left;
+  }
+
+  .col-rule {
+    white-space: normal;
+  }
 }
 </style>
