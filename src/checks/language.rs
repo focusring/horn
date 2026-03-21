@@ -51,16 +51,12 @@ impl Check for LanguageChecks {
             }
         }
 
-        // Check text strings that need language context (outside struct tree).
-        // Only flag when there's no catalog /Lang AND no struct-level /Lang.
-        // When struct elements provide /Lang, text strings in the document
-        // are considered to have language context by veraPDF's interpretation.
+        // Check text strings outside the struct tree that need language context.
+        // Outline /Title, annotation /Contents, widget /TU, and dc:title are NOT
+        // inside the structure tree, so struct-level /Lang does NOT cover them.
+        // Only catalog /Lang provides language context for these strings.
         let has_catalog_lang = doc_lang.as_ref().is_some_and(|l| !l.is_empty());
-        let has_any_struct_lang = has_catalog_lang
-            || get_struct_tree(catalog, lopdf_doc)
-                .is_some_and(|st| has_struct_level_lang(lopdf_doc, st, 0));
-
-        if !has_catalog_lang && !has_any_struct_lang {
+        if !has_catalog_lang {
             check_outline_language(lopdf_doc, catalog, &mut results);
             check_annotation_text_language(lopdf_doc, &mut results);
             check_dc_title_language(lopdf_doc, catalog, &mut results);
@@ -338,41 +334,6 @@ fn walk_struct_tree_with_lang(
     }
 }
 
-/// Check if any element in the structure tree has a /Lang attribute.
-fn has_struct_level_lang(doc: &lopdf::Document, dict: &lopdf::Dictionary, depth: usize) -> bool {
-    if depth > 10 {
-        return false;
-    }
-    if let Ok(lang) = dict.get(b"Lang") {
-        if lang.as_str().is_ok_and(|s| !s.is_empty()) {
-            return true;
-        }
-    }
-    let Ok(kids) = dict.get(b"K") else {
-        return false;
-    };
-    match kids {
-        lopdf::Object::Array(arr) => arr.iter().any(|kid| {
-            if let Ok(ref_id) = kid.as_reference() {
-                doc.get_object(ref_id)
-                    .ok()
-                    .and_then(|o| o.as_dict().ok())
-                    .is_some_and(|d| has_struct_level_lang(doc, d, depth + 1))
-            } else if let Ok(d) = kid.as_dict() {
-                has_struct_level_lang(doc, d, depth + 1)
-            } else {
-                false
-            }
-        }),
-        lopdf::Object::Reference(ref_id) => doc
-            .get_object(*ref_id)
-            .ok()
-            .and_then(|o| o.as_dict().ok())
-            .is_some_and(|d| has_struct_level_lang(doc, d, depth + 1)),
-        _ => false,
-    }
-}
-
 /// 02-001: Outline entries (bookmarks) with /Title text must have language context.
 ///
 /// When there's no catalog /Lang, outline text strings have no language specification,
@@ -448,9 +409,18 @@ fn has_outline_titles(doc: &lopdf::Document, node: &lopdf::Dictionary, depth: us
 
 /// 02-002: Annotation text strings (/Contents, /TU) need language context.
 ///
-/// When there's no catalog /Lang, text strings on annotations have no language,
-/// making them inaccessible for text-to-speech.
+/// When there's no catalog /Lang, annotation text strings need language from
+/// their struct element (via `/StructParent` -> `ParentTree` -> struct elem with `/Lang`).
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation
+)]
+/// Only flag annotations whose struct element chain has no /Lang.
 fn check_annotation_text_language(doc: &lopdf::Document, results: &mut Vec<CheckResult>) {
+    // Build a map: StructParent index → struct element with /Lang info
+    let struct_parent_langs = collect_struct_parent_langs(doc);
+
     let pages = doc.get_pages();
     let mut contents_without_lang = 0;
     let mut tu_without_lang = 0;
@@ -486,6 +456,18 @@ fn check_annotation_text_language(doc: &lopdf::Document, results: &mut Vec<Check
             };
             let Some(annot_dict) = annot else { continue };
 
+            // Check if annotation's struct element provides lang
+            let struct_parent = annot_dict
+                .get(b"StructParent")
+                .ok()
+                .and_then(|o| o.as_i64().ok());
+            let has_struct_lang =
+                struct_parent.is_some_and(|sp| struct_parent_langs.contains(&(sp as u32)));
+
+            if has_struct_lang {
+                continue; // Struct element provides language context
+            }
+
             // Check /Contents (non-empty)
             if let Ok(contents) = annot_dict.get(b"Contents") {
                 if contents.as_str().is_ok_and(|s| !s.is_empty()) {
@@ -517,6 +499,136 @@ fn check_annotation_text_language(doc: &lopdf::Document, results: &mut Vec<Check
             ),
         ));
     }
+}
+
+/// Collect `StructParent` indices whose struct element (or ancestors) have /Lang.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::items_after_statements
+)]
+fn collect_struct_parent_langs(doc: &lopdf::Document) -> std::collections::HashSet<u32> {
+    let mut result = std::collections::HashSet::new();
+
+    // Get StructTreeRoot
+    let catalog = doc
+        .trailer
+        .get(b"Root")
+        .ok()
+        .and_then(|o| o.as_reference().ok())
+        .and_then(|r| doc.get_object(r).ok())
+        .and_then(|o| o.as_dict().ok());
+    let Some(cat) = catalog else { return result };
+
+    let struct_tree = cat
+        .get(b"StructTreeRoot")
+        .ok()
+        .and_then(|o| o.as_reference().ok())
+        .and_then(|r| doc.get_object(r).ok())
+        .and_then(|o| o.as_dict().ok());
+    let Some(st) = struct_tree else { return result };
+
+    // Walk tree, tracking inherited lang
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    fn walk(
+        doc: &lopdf::Document,
+        dict: &lopdf::Dictionary,
+        inherited_lang: bool,
+        result: &mut std::collections::HashSet<u32>,
+        depth: usize,
+    ) {
+        if depth > 100 {
+            return;
+        }
+
+        let has_lang = inherited_lang
+            || dict
+                .get(b"Lang")
+                .ok()
+                .and_then(|o| o.as_str().ok())
+                .is_some_and(|s| !s.is_empty());
+
+        // Check if this element is an OBJR with /StructParent on the referenced annotation
+        // or if it directly has content with StructParent
+        let Ok(kids) = dict.get(b"K") else { return };
+
+        match kids {
+            lopdf::Object::Array(arr) => {
+                for kid in arr {
+                    if let Ok(ref_id) = kid.as_reference() {
+                        if let Ok(obj) = doc.get_object(ref_id) {
+                            if let Ok(d) = obj.as_dict() {
+                                // Check if this is an OBJR
+                                let is_objr = d
+                                    .get(b"Type")
+                                    .ok()
+                                    .and_then(|o| o.as_name().ok())
+                                    .is_some_and(|n| n == b"OBJR");
+                                if is_objr && has_lang {
+                                    // Get the referenced annotation's StructParent
+                                    if let Ok(obj_ref) = d.get(b"Obj") {
+                                        if let Ok(annot_id) = obj_ref.as_reference() {
+                                            if let Ok(annot_obj) = doc.get_object(annot_id) {
+                                                if let Ok(annot_dict) = annot_obj.as_dict() {
+                                                    if let Ok(sp) = annot_dict.get(b"StructParent")
+                                                    {
+                                                        if let Ok(sp_val) = sp.as_i64() {
+                                                            result.insert(sp_val as u32);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    walk(doc, d, has_lang, result, depth + 1);
+                                }
+                            }
+                        }
+                    } else if let Ok(d) = kid.as_dict() {
+                        walk(doc, d, has_lang, result, depth + 1);
+                    }
+                }
+            }
+            lopdf::Object::Reference(ref_id) => {
+                if let Ok(obj) = doc.get_object(*ref_id) {
+                    if let Ok(d) = obj.as_dict() {
+                        walk(doc, d, has_lang, result, depth + 1);
+                    }
+                }
+            }
+            lopdf::Object::Dictionary(d) => {
+                // Single child OBJR
+                let is_objr = d
+                    .get(b"Type")
+                    .ok()
+                    .and_then(|o| o.as_name().ok())
+                    .is_some_and(|n| n == b"OBJR");
+                if is_objr && has_lang {
+                    if let Ok(obj_ref) = d.get(b"Obj") {
+                        if let Ok(annot_id) = obj_ref.as_reference() {
+                            if let Ok(annot_obj) = doc.get_object(annot_id) {
+                                if let Ok(annot_dict) = annot_obj.as_dict() {
+                                    if let Ok(sp) = annot_dict.get(b"StructParent") {
+                                        if let Ok(sp_val) = sp.as_i64() {
+                                            result.insert(sp_val as u32);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    walk(doc, d, has_lang, result, depth + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    walk(doc, st, false, &mut result, 0);
+    result
 }
 
 /// 02-004: XMP dc:title must have a real language when no catalog /Lang.

@@ -32,6 +32,7 @@ impl Check for ContentStreamChecks {
 
         let mut total_text_ops = 0u32;
         let mut untagged_text_ops = 0u32;
+        let mut untagged_xobject_ops = 0u32;
         let mut artifact_in_tagged = 0u32;
         let mut pages_analyzed = 0u32;
 
@@ -49,6 +50,7 @@ impl Check for ContentStreamChecks {
 
             total_text_ops += page_result.total_text_ops;
             untagged_text_ops += page_result.untagged_text_ops;
+            untagged_xobject_ops += page_result.untagged_xobject_ops;
             artifact_in_tagged += page_result.artifact_inside_tagged;
         }
 
@@ -80,6 +82,24 @@ impl Check for ContentStreamChecks {
             }
         }
 
+        // 01-002: Untagged XObject (image/form) invocations
+        if untagged_xobject_ops > 0 {
+            results.push(CheckResult {
+                rule_id: "01-002".to_string(),
+                checkpoint: 1,
+                description: format!(
+                    "{untagged_xobject_ops} XObject invocation(s) are outside marked content"
+                ),
+                severity: Severity::Error,
+                outcome: CheckOutcome::Fail {
+                    message: format!(
+                        "{untagged_xobject_ops} XObject (Do) operation(s) are not inside BMC/BDC..EMC marked content — images and form XObjects must be tagged or marked as artifacts"
+                    ),
+                    location: None,
+                },
+            });
+        }
+
         // 01-005: Artifact content inside tagged content
         if artifact_in_tagged > 0 {
             results.push(CheckResult {
@@ -105,6 +125,7 @@ impl Check for ContentStreamChecks {
 struct PageAnalysis {
     total_text_ops: u32,
     untagged_text_ops: u32,
+    untagged_xobject_ops: u32,
     artifact_inside_tagged: u32,
 }
 
@@ -113,6 +134,7 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
     let mut result = PageAnalysis {
         total_text_ops: 0,
         untagged_text_ops: 0,
+        untagged_xobject_ops: 0,
         artifact_inside_tagged: 0,
     };
 
@@ -159,6 +181,24 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
                 result.total_text_ops += 1;
                 if mc_stack.is_empty() {
                     result.untagged_text_ops += 1;
+                }
+            }
+
+            // XObject invocation — only flag image XObjects outside marked content.
+            // Form XObjects (/Fm*) contain their own content stream with their own
+            // marked content structure, so they don't need to be inside page-level
+            // BDC/EMC. Image XObjects (/Im*) are leaf content and must be tagged.
+            "Do" => {
+                if mc_stack.is_empty() {
+                    // Check XObject name — /Im prefix indicates image
+                    let is_image = op
+                        .operands
+                        .first()
+                        .and_then(|o| o.as_name().ok())
+                        .is_some_and(|name| name.starts_with(b"Im"));
+                    if is_image {
+                        result.untagged_xobject_ops += 1;
+                    }
                 }
             }
 

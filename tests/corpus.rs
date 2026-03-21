@@ -504,8 +504,8 @@ fn coverage_baseline() {
         ua1_pass.len()
     );
     assert!(
-        ua1_fail_detected >= 138,
-        "UA-1 fail detection regression: {}/{} (baseline: 138/155)",
+        ua1_fail_detected >= 143,
+        "UA-1 fail detection regression: {}/{} (baseline: 143/155)",
         ua1_fail_detected,
         ua1_fail.len()
     );
