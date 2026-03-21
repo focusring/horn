@@ -13,6 +13,8 @@ import HornDemo from './.vitepress/components/HornDemo.vue'
 
 Validate PDF files against PDF/UA-1 directly in your browser. Horn runs as WebAssembly — your files never leave your device.
 
+> **Note:** This browser demo runs via WebAssembly which is significantly slower than the native CLI. For production use and accurate performance benchmarks, use `horn validate` on the command line — it processes ~660 PDFs/second with parallel execution.
+
 <HornDemo />
 
 </div>
