@@ -381,9 +381,9 @@ fn is_standard_structure_type(name: &[u8]) -> bool {
     )
 }
 
-/// 25-001: Reference XObjects (/Ref key on Form XObjects) are not permitted in PDF/UA.
+/// 25-001: Reference `XObjects` (/Ref key on Form `XObjects`) are not permitted in PDF/UA.
 ///
-/// A Form XObject with a /Ref entry is a reference XObject that points to external
+/// A Form `XObject` with a /Ref entry is a reference `XObject` that points to external
 /// content. These are forbidden because assistive technologies cannot access the
 /// referenced content.
 fn check_reference_xobjects(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
@@ -410,7 +410,7 @@ fn check_reference_xobjects(doc: &mut HornDocument, results: &mut Vec<CheckResul
             continue;
         };
 
-        for (name, obj) in xobj_dict.iter() {
+        for (name, obj) in xobj_dict {
             let resolved = if let Ok(ref_id) = obj.as_reference() {
                 lopdf_doc.get_object(ref_id).ok()
             } else {

@@ -450,15 +450,12 @@ fn has_outline_titles(doc: &lopdf::Document, node: &lopdf::Dictionary, depth: us
 ///
 /// When there's no catalog /Lang, text strings on annotations have no language,
 /// making them inaccessible for text-to-speech.
-fn check_annotation_text_language(
-    doc: &lopdf::Document,
-    results: &mut Vec<CheckResult>,
-) {
+fn check_annotation_text_language(doc: &lopdf::Document, results: &mut Vec<CheckResult>) {
     let pages = doc.get_pages();
     let mut contents_without_lang = 0;
     let mut tu_without_lang = 0;
 
-    for (_page_num, page_id) in &pages {
+    for page_id in pages.values() {
         let Ok(page_obj) = doc.get_object(*page_id) else {
             continue;
         };

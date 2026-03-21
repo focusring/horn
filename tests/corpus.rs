@@ -363,11 +363,7 @@ fn generated_fail_files() {
     }
 
     let detected = pdfs.len() - missed.len();
-    eprintln!(
-        "Generated fail files: {}/{} detected",
-        detected,
-        pdfs.len()
-    );
+    eprintln!("Generated fail files: {}/{} detected", detected, pdfs.len());
 
     assert!(
         missed.is_empty(),

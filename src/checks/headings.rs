@@ -35,8 +35,7 @@ impl Check for HeadingChecks {
         collect_headings(lopdf_doc, struct_tree, &mut headings, 0);
 
         // Check for sibling generic H headings (same parent, both H)
-        let has_generic_h_sibling_violation =
-            check_generic_h_siblings(lopdf_doc, struct_tree, 0);
+        let has_generic_h_sibling_violation = check_generic_h_siblings(lopdf_doc, struct_tree, 0);
 
         if headings.is_empty() {
             // No headings found — this might be okay for simple documents
@@ -102,9 +101,7 @@ impl Check for HeadingChecks {
         // 14-003: Generic H headings must use nesting to convey hierarchy.
         // Two sibling generic H headings (same parent element) means the document
         // doesn't properly distinguish heading levels through nesting.
-        if !has_generic_h_sibling_violation {
-            // Already checked — no violation
-        } else {
+        if has_generic_h_sibling_violation {
             results.push(CheckResult {
                 rule_id: "14-003".to_string(),
                 checkpoint: 14,
@@ -116,6 +113,8 @@ impl Check for HeadingChecks {
                     location: None,
                 },
             });
+        } else {
+            // Already checked — no violation
         }
 
         // 14-007: Check for mixing numbered (H1-H6) and generic (H) headings
@@ -156,13 +155,34 @@ fn collect_headings(
     // Check if this element is a heading
     if let Ok(s_type) = dict.get(b"S").and_then(|o| o.as_name()) {
         match s_type {
-            b"H1" => headings.push(HeadingInfo { level: 1, is_generic: false }),
-            b"H2" => headings.push(HeadingInfo { level: 2, is_generic: false }),
-            b"H3" => headings.push(HeadingInfo { level: 3, is_generic: false }),
-            b"H4" => headings.push(HeadingInfo { level: 4, is_generic: false }),
-            b"H5" => headings.push(HeadingInfo { level: 5, is_generic: false }),
-            b"H6" => headings.push(HeadingInfo { level: 6, is_generic: false }),
-            b"H" => headings.push(HeadingInfo { level: 0, is_generic: true }),
+            b"H1" => headings.push(HeadingInfo {
+                level: 1,
+                is_generic: false,
+            }),
+            b"H2" => headings.push(HeadingInfo {
+                level: 2,
+                is_generic: false,
+            }),
+            b"H3" => headings.push(HeadingInfo {
+                level: 3,
+                is_generic: false,
+            }),
+            b"H4" => headings.push(HeadingInfo {
+                level: 4,
+                is_generic: false,
+            }),
+            b"H5" => headings.push(HeadingInfo {
+                level: 5,
+                is_generic: false,
+            }),
+            b"H6" => headings.push(HeadingInfo {
+                level: 6,
+                is_generic: false,
+            }),
+            b"H" => headings.push(HeadingInfo {
+                level: 0,
+                is_generic: true,
+            }),
             _ => {}
         }
     }
@@ -200,11 +220,7 @@ fn collect_headings(
 
 /// Check if any element in the tree has multiple generic H children (siblings).
 /// This means the document uses generic headings but doesn't nest them to convey hierarchy.
-fn check_generic_h_siblings(
-    doc: &lopdf::Document,
-    dict: &lopdf::Dictionary,
-    depth: usize,
-) -> bool {
+fn check_generic_h_siblings(doc: &lopdf::Document, dict: &lopdf::Dictionary, depth: usize) -> bool {
     if depth > 100 {
         return false;
     }
@@ -217,9 +233,7 @@ fn check_generic_h_siblings(
     let mut h_count = 0;
     let mut found_in_children = false;
 
-    let process_child = |child_dict: &lopdf::Dictionary,
-                         h_count: &mut usize,
-                         found: &mut bool| {
+    let process_child = |child_dict: &lopdf::Dictionary, h_count: &mut usize, found: &mut bool| {
         if let Ok(s_type) = child_dict.get(b"S").and_then(|o| o.as_name()) {
             if s_type == b"H" {
                 *h_count += 1;
