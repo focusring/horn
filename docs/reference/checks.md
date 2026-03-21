@@ -1,6 +1,6 @@
 # Checks Reference
 
-Horn implements 21 check modules covering the Matterhorn Protocol checkpoints. Each check targets specific PDF/UA-1 (and some PDF/UA-2) failure conditions.
+Horn implements 21 check modules validating 78 individual rules across the Matterhorn Protocol checkpoints. Each check targets specific PDF/UA-1 (and some PDF/UA-2) failure conditions.
 
 ## Check modules
 
@@ -18,14 +18,16 @@ Tagged PDF structure validation.
 | 01-004 | `/StructTreeRoot` must exist and have children |
 | 02-001 | `/RoleMap` entries must resolve to standard types; circular chains detected |
 
-### content_stream — Checkpoint 01, 10
+### content_stream — Checkpoint 01, 10, 31
 
 Content stream analysis.
 
 | Rule | Description |
 |------|-------------|
 | 01-001 | All text operations must be inside `BMC`/`BDC`..`EMC` marked content sequences |
-| 01-005 | XObject invocations must be tagged or marked as artifacts |
+| 01-002 | Image XObject invocations (`Do`) must be inside marked content sequences |
+| 01-005 | Artifact content must not be nested inside tagged content |
+| 31-025 | Text operations must not reference the `.notdef` glyph (CID 0) |
 
 ### language — Checkpoint 02, 11
 
@@ -198,13 +200,13 @@ Annotation-to-structure-tree cross-validation.
 
 ### fonts — Checkpoint 31
 
-Font embedding, encoding, and Unicode mapping.
+Font embedding, encoding, Unicode mapping, and font program validation. Uses `ttf-parser` for TrueType font introspection.
 
 | Rule | Description |
 |------|-------------|
 | 31-001 | All fonts must be embedded (`FontFile`/`FontFile2`/`FontFile3`) |
 | 31-002 | `CIDFontType2` must have `/CIDToGIDMap` (`/Identity` or stream) |
-| 31-003 | `CIDFont` must have valid `/CIDSystemInfo`; CMap encoding validated; Supplement consistency checked |
+| 31-003 | `CIDFont` must have valid `/CIDSystemInfo`; CMap encoding validated; CIDFont Supplement must not exceed CMap Supplement |
 | 31-004 | `/CIDSet` must be a valid stream when present |
 | 31-005 | `/Encoding` must be a valid predefined name or dictionary; non-symbolic TrueType must have encoding |
 | 31-006 | Font must have `/ToUnicode` CMap or standard encoding |

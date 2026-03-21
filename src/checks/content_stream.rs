@@ -32,7 +32,9 @@ impl Check for ContentStreamChecks {
 
         let mut total_text_ops = 0u32;
         let mut untagged_text_ops = 0u32;
+        let mut untagged_xobject_ops = 0u32;
         let mut artifact_in_tagged = 0u32;
+        let mut notdef_usage = 0u32;
         let mut pages_analyzed = 0u32;
 
         for (page_num, page_id) in &pages {
@@ -49,7 +51,9 @@ impl Check for ContentStreamChecks {
 
             total_text_ops += page_result.total_text_ops;
             untagged_text_ops += page_result.untagged_text_ops;
+            untagged_xobject_ops += page_result.untagged_xobject_ops;
             artifact_in_tagged += page_result.artifact_inside_tagged;
+            notdef_usage += page_result.notdef_glyph_usage;
         }
 
         // 01-001: Untagged content detection
@@ -80,6 +84,42 @@ impl Check for ContentStreamChecks {
             }
         }
 
+        // 01-002: Untagged XObject (image/form) invocations
+        if untagged_xobject_ops > 0 {
+            results.push(CheckResult {
+                rule_id: "01-002".to_string(),
+                checkpoint: 1,
+                description: format!(
+                    "{untagged_xobject_ops} XObject invocation(s) are outside marked content"
+                ),
+                severity: Severity::Error,
+                outcome: CheckOutcome::Fail {
+                    message: format!(
+                        "{untagged_xobject_ops} XObject (Do) operation(s) are not inside BMC/BDC..EMC marked content — images and form XObjects must be tagged or marked as artifacts"
+                    ),
+                    location: None,
+                },
+            });
+        }
+
+        // 31-025: .notdef glyph usage (CID 0 / \x00\x00 in text strings)
+        if notdef_usage > 0 {
+            results.push(CheckResult {
+                rule_id: "31-025".to_string(),
+                checkpoint: 31,
+                description: format!(
+                    "{notdef_usage} text operation(s) reference the .notdef glyph (CID 0)"
+                ),
+                severity: Severity::Error,
+                outcome: CheckOutcome::Fail {
+                    message: format!(
+                        "{notdef_usage} text operation(s) use CID 0 (.notdef glyph) — all glyphs must map to valid characters"
+                    ),
+                    location: None,
+                },
+            });
+        }
+
         // 01-005: Artifact content inside tagged content
         if artifact_in_tagged > 0 {
             results.push(CheckResult {
@@ -105,7 +145,9 @@ impl Check for ContentStreamChecks {
 struct PageAnalysis {
     total_text_ops: u32,
     untagged_text_ops: u32,
+    untagged_xobject_ops: u32,
     artifact_inside_tagged: u32,
+    notdef_glyph_usage: u32,
 }
 
 /// Analyze a page's content stream operations for marked content coverage.
@@ -113,7 +155,9 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
     let mut result = PageAnalysis {
         total_text_ops: 0,
         untagged_text_ops: 0,
+        untagged_xobject_ops: 0,
         artifact_inside_tagged: 0,
+        notdef_glyph_usage: 0,
     };
 
     // Track marked content nesting.
@@ -160,6 +204,30 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
                 if mc_stack.is_empty() {
                     result.untagged_text_ops += 1;
                 }
+                // Check for .notdef glyph (CID 0 = \x00\x00) in string operands
+                for operand in &op.operands {
+                    if has_notdef_glyph(operand) {
+                        result.notdef_glyph_usage += 1;
+                    }
+                }
+            }
+
+            // XObject invocation — only flag image XObjects outside marked content.
+            // Form XObjects (/Fm*) contain their own content stream with their own
+            // marked content structure, so they don't need to be inside page-level
+            // BDC/EMC. Image XObjects (/Im*) are leaf content and must be tagged.
+            "Do" => {
+                if mc_stack.is_empty() {
+                    // Check XObject name — /Im prefix indicates image
+                    let is_image = op
+                        .operands
+                        .first()
+                        .and_then(|o| o.as_name().ok())
+                        .is_some_and(|name| name.starts_with(b"Im"));
+                    if is_image {
+                        result.untagged_xobject_ops += 1;
+                    }
+                }
             }
 
             _ => {}
@@ -167,6 +235,48 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
     }
 
     result
+}
+
+/// Check if a text operand contains the .notdef glyph (CID 0 = `\x00\x00`).
+///
+/// In CID fonts, CID 0 is always the .notdef glyph. A 2-byte string starting
+/// with `\x00\x00` indicates .notdef usage. For TJ arrays, check each string element.
+fn has_notdef_glyph(operand: &lopdf::Object) -> bool {
+    match operand {
+        lopdf::Object::String(bytes, _) => {
+            // Check for \x00\x00 (CID 0) in 2-byte aligned positions
+            let data = bytes.as_slice();
+            if data.len() >= 2 {
+                let mut i = 0;
+                while i + 1 < data.len() {
+                    if data[i] == 0 && data[i + 1] == 0 {
+                        return true;
+                    }
+                    i += 2;
+                }
+            }
+            false
+        }
+        lopdf::Object::Array(arr) => {
+            // TJ array: mix of strings and numbers
+            arr.iter().any(|item| {
+                if let lopdf::Object::String(bytes, _) = item {
+                    let data = bytes.as_slice();
+                    if data.len() >= 2 {
+                        let mut i = 0;
+                        while i + 1 < data.len() {
+                            if data[i] == 0 && data[i + 1] == 0 {
+                                return true;
+                            }
+                            i += 2;
+                        }
+                    }
+                }
+                false
+            })
+        }
+        _ => false,
+    }
 }
 
 /// 30-002: Check for Reference `XObjects` which are forbidden in PDF/UA.
