@@ -303,6 +303,80 @@ fn pdfcheck_fail_files() {
 }
 
 // =============================================================================
+// Generated Fixtures — Targeted edge-case and adversarial PDFs
+// =============================================================================
+
+#[test]
+fn generated_pass_files() {
+    let dir = fixtures().join("generated");
+    let pdfs = collect_pdfs(&dir, "-pass.");
+    if pdfs.is_empty() {
+        eprintln!("Skipping generated pass test — no fixtures found (run generate.py)");
+        return;
+    }
+
+    let mut failures = Vec::new();
+    for pdf in &pdfs {
+        let report = horn::validate_file(pdf);
+        if !report.is_compliant() {
+            let name = pdf.strip_prefix(&dir).unwrap_or(pdf).display();
+            let issues: Vec<_> = report
+                .results
+                .iter()
+                .filter(|r| r.is_failure())
+                .map(|r| format!("{}: {}", r.rule_id, r.description))
+                .collect();
+            failures.push(format!("  {} — {}", name, issues.join("; ")));
+        }
+    }
+
+    let compliant = pdfs.len() - failures.len();
+    eprintln!(
+        "Generated pass files: {}/{} compliant",
+        compliant,
+        pdfs.len()
+    );
+
+    assert!(
+        failures.is_empty(),
+        "Generated pass files should all be compliant:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn generated_fail_files() {
+    let dir = fixtures().join("generated");
+    let pdfs = collect_pdfs(&dir, "-fail.");
+    if pdfs.is_empty() {
+        eprintln!("Skipping generated fail test — no fixtures found (run generate.py)");
+        return;
+    }
+
+    let mut missed = Vec::new();
+    for pdf in &pdfs {
+        let report = horn::validate_file(pdf);
+        if report.is_compliant() {
+            let name = pdf.strip_prefix(&dir).unwrap_or(pdf).display();
+            missed.push(format!("  {}", name));
+        }
+    }
+
+    let detected = pdfs.len() - missed.len();
+    eprintln!(
+        "Generated fail files: {}/{} detected",
+        detected,
+        pdfs.len()
+    );
+
+    assert!(
+        missed.is_empty(),
+        "Generated fail files should all be non-compliant:\n{}",
+        missed.join("\n")
+    );
+}
+
+// =============================================================================
 // Coverage Baseline — Aggregate stats that must not regress
 // =============================================================================
 
@@ -327,6 +401,22 @@ fn coverage_baseline() {
     // --- UA-1 fail ---
     let ua1_fail = collect_pdfs(&fixtures.join("verapdf-corpus/PDF_UA-1"), "-fail-");
     let ua1_fail_detected = ua1_fail
+        .iter()
+        .filter(|p| {
+            let r = horn::validate_file(p);
+            r.failed() > 0 || r.error.is_some()
+        })
+        .count();
+
+    // --- Generated fixtures ---
+    let gen_pass = collect_pdfs(&fixtures.join("generated"), "-pass.");
+    let gen_pass_compliant = gen_pass
+        .iter()
+        .filter(|p| horn::validate_file(p).is_compliant())
+        .count();
+
+    let gen_fail = collect_pdfs(&fixtures.join("generated"), "-fail.");
+    let gen_fail_detected = gen_fail
         .iter()
         .filter(|p| {
             let r = horn::validate_file(p);
@@ -362,17 +452,28 @@ fn coverage_baseline() {
         ua1_fail_detected as f64 / ua1_fail.len().max(1) as f64 * 100.0
     );
     eprintln!(
+        "║ Generated pass:   {:>3}/{:<3} compliant ({:.0}%)     ║",
+        gen_pass_compliant,
+        gen_pass.len(),
+        gen_pass_compliant as f64 / gen_pass.len().max(1) as f64 * 100.0
+    );
+    eprintln!(
+        "║ Generated fail:   {:>3}/{:<3} detected  ({:.0}%)     ║",
+        gen_fail_detected,
+        gen_fail.len(),
+        gen_fail_detected as f64 / gen_fail.len().max(1) as f64 * 100.0
+    );
+    eprintln!(
         "║ Checks per file:  {:<3}                         ║",
         check_count
     );
     eprintln!("╚══════════════════════════════════════════════╝\n");
 
     // =========================================================================
-    // BASELINE ASSERTIONS — Update these after first run with actual values.
-    // These are floors: future changes must meet or exceed these numbers.
+    // BASELINE ASSERTIONS — floors that future changes must meet or exceed.
+    // BASELINE — recorded 2026-03-21.
     // =========================================================================
 
-    // Placeholder: will be replaced with actual values after first run
     assert!(
         ref_pdfs.len() >= 10,
         "Expected at least 10 reference PDFs, found {}",
@@ -394,7 +495,6 @@ fn coverage_baseline() {
         check_count
     );
 
-    // BASELINE — recorded 2026-03-20. Future changes must meet or exceed these.
     assert!(
         ref_compliant >= 10,
         "Reference suite regression: {}/{} compliant (baseline: 10/10)",
@@ -417,5 +517,19 @@ fn coverage_baseline() {
         check_count >= 33,
         "Check count regression: {} (baseline: 33)",
         check_count
+    );
+
+    // Generated fixtures — 100% accuracy required
+    assert!(
+        gen_pass_compliant == gen_pass.len(),
+        "Generated pass regression: {}/{} compliant (baseline: 25/25)",
+        gen_pass_compliant,
+        gen_pass.len()
+    );
+    assert!(
+        gen_fail_detected == gen_fail.len(),
+        "Generated fail regression: {}/{} detected (baseline: 56/56)",
+        gen_fail_detected,
+        gen_fail.len()
     );
 }
