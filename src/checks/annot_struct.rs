@@ -626,7 +626,8 @@ fn is_zero_size_rect(dict: &lopdf::Dictionary) -> bool {
     let coords: Vec<f64> = arr
         .iter()
         .filter_map(|o| match o {
-            lopdf::Object::Real(f) => Some(*f as f64),
+            lopdf::Object::Real(f) => Some(f64::from(*f)),
+            #[allow(clippy::cast_precision_loss)]
             lopdf::Object::Integer(i) => Some(*i as f64),
             _ => None,
         })

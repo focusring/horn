@@ -911,7 +911,7 @@ fn check_type0_cmap_encoding(
     }
 
     // Check CIDSystemInfo consistency between CMap and CIDFont
-    if let Some((cmap_reg, cmap_ord, _cmap_sup)) = cmap_csi {
+    if let Some((cmap_reg, cmap_ord, cmap_sup)) = cmap_csi {
         if let Ok(descendants) = font_dict
             .get_deref(b"DescendantFonts", doc)
             .and_then(|o| o.as_array())
@@ -948,7 +948,7 @@ fn check_type0_cmap_encoding(
                     .ok()
                     .and_then(|o| o.as_str().ok())
                     .map(|s| String::from_utf8_lossy(s).to_string());
-                let _font_sup = csi_dict
+                let font_sup = csi_dict
                     .get(b"Supplement")
                     .ok()
                     .and_then(|o| o.as_i64().ok());
@@ -999,18 +999,18 @@ fn check_type0_cmap_encoding(
                     // The CIDFont Supplement must NOT exceed the CMap Supplement.
                     // A CIDFont with a higher Supplement than the CMap references CIDs
                     // the CMap cannot map. A lower Supplement is valid (pass-d confirms).
-                    if let Some(font_sup) = _font_sup {
-                        if font_sup > _cmap_sup {
+                    if let Some(font_sup) = font_sup {
+                        if font_sup > cmap_sup {
                             results.push(CheckResult {
                                 rule_id: "31-003".to_string(),
                                 checkpoint: 31,
                                 description: format!(
-                                    "Font /{font_label}: CIDFont Supplement ({font_sup}) exceeds CMap Supplement ({_cmap_sup})"
+                                    "Font /{font_label}: CIDFont Supplement ({font_sup}) exceeds CMap Supplement ({cmap_sup})"
                                 ),
                                 severity: Severity::Error,
                                 outcome: CheckOutcome::Fail {
                                     message: format!(
-                                        "Font /{font_label}: CIDFont CIDSystemInfo Supplement ({font_sup}) is greater than CMap CIDSystemInfo Supplement ({_cmap_sup}) — CIDFont may reference CIDs the CMap cannot map"
+                                        "Font /{font_label}: CIDFont CIDSystemInfo Supplement ({font_sup}) is greater than CMap CIDSystemInfo Supplement ({cmap_sup}) — CIDFont may reference CIDs the CMap cannot map"
                                     ),
                                     location: location.cloned(),
                                 },
