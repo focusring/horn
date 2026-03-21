@@ -67,13 +67,9 @@ impl Check for FontChecks {
                     location.as_ref(),
                     &mut results,
                 );
-                check_font_program(
-                    lopdf_doc,
-                    font_dict,
-                    &font_label,
-                    location.as_ref(),
-                    &mut results,
-                );
+                // check_font_program is scaffolding — not called until
+                // 31-008/31-009/31-010 checks are ready to emit results.
+                // Calling it now would decompress/parse FontFile2 for no benefit.
             }
         }
 
@@ -1113,13 +1109,14 @@ fn extract_cmap_wmode(stream: &str) -> Option<i64> {
     })
 }
 
-/// Font-program-level checks using `ttf-parser`.
+/// Scaffolding for font-program-level checks using `ttf-parser`.
 ///
-/// Validates properties that require parsing the embedded font data:
+/// Parses embedded TrueType font data but does not currently emit rule outcomes.
+/// Planned checks (not yet enforced due to high false-positive rates):
 /// - 31-008: TrueType `/Widths` must match actual glyph widths in `hmtx` table
 /// - 31-009: Symbolic flag must match font's actual encoding (cmap table)
 /// - 31-010: Type1 `/CharSet` must match glyphs in the font program
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, dead_code)]
 fn check_font_program(
     doc: &lopdf::Document,
     font_dict: &lopdf::Dictionary,
