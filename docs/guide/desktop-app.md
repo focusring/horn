@@ -2,11 +2,27 @@
 
 Horn is available as a native desktop application built with [Tauri](https://tauri.app/). It provides a visual interface for validating PDFs without using the command line.
 
-## Download
+## Install
 
-Download the latest installer for your platform from [GitHub Releases](https://github.com/focusring/horn/releases/latest):
+::: code-group
 
-[macOS (.dmg)](https://github.com/focusring/horn/releases/latest) · [Windows (.msi)](https://github.com/focusring/horn/releases/latest) · [Linux (.deb / .AppImage)](https://github.com/focusring/horn/releases/latest)
+```bash [macOS]
+curl -sL $(curl -s https://api.github.com/repos/focusring/horn/releases/latest | grep browser_download_url | grep '.dmg"' | cut -d '"' -f 4) -o Horn.dmg && open Horn.dmg
+```
+
+```powershell [Windows]
+irm ((irm https://api.github.com/repos/focusring/horn/releases/latest).assets | ? { $_.name -like '*.msi' }).browser_download_url -OutFile Horn.msi; Start-Process Horn.msi
+```
+
+```bash [Linux (deb)]
+curl -sL $(curl -s https://api.github.com/repos/focusring/horn/releases/latest | grep browser_download_url | grep '.deb"' | cut -d '"' -f 4) -o horn.deb && sudo dpkg -i horn.deb
+```
+
+```bash [Linux (AppImage)]
+curl -sL $(curl -s https://api.github.com/repos/focusring/horn/releases/latest | grep browser_download_url | grep '.AppImage"' | cut -d '"' -f 4) -o Horn.AppImage && chmod +x Horn.AppImage && ./Horn.AppImage
+```
+
+:::
 
 ## Features
 
