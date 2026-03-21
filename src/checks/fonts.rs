@@ -216,14 +216,35 @@ fn check_tounicode_content(
 
     let content = String::from_utf8_lossy(&stream_data);
 
-    // Check for mappings to U+0000 in bfchar sections
-    // Format: <XX> <0000>
+    // Check for mappings to invalid Unicode values in bfchar sections
+    // Format: <XX> <YYYY>
     let mut null_mappings = 0;
+    let mut nonchar_mappings = 0;
     for line in content.lines() {
         let trimmed = line.trim();
-        // Match lines like "<01> <0000>" in bfchar sections
-        if trimmed.starts_with('<') && trimmed.contains("> <0000>") {
-            null_mappings += 1;
+        if !trimmed.starts_with('<') {
+            continue;
+        }
+        // Extract target value: second <XXXX> on the line
+        if let Some(target_start) = trimmed.find("> <") {
+            let after = &trimmed[target_start + 3..];
+            if let Some(target_end) = after.find('>') {
+                let target = after[..target_end].trim();
+                // U+0000 — null, no Unicode representation
+                if target.eq_ignore_ascii_case("0000") {
+                    null_mappings += 1;
+                }
+                // U+FFFE — guaranteed noncharacter (byte-order mark reversed)
+                // U+FEFF — BOM / zero-width no-break space (invalid as text mapping target)
+                // Note: U+FFFF is also a noncharacter but commonly used as a placeholder
+                // in valid CID font ToUnicode CMaps, so we don't flag it.
+                if target.len() == 4 {
+                    let upper = target.to_ascii_uppercase();
+                    if matches!(upper.as_str(), "FFFE" | "FEFF") {
+                        nonchar_mappings += 1;
+                    }
+                }
+            }
         }
     }
 
@@ -238,6 +259,23 @@ fn check_tounicode_content(
             outcome: CheckOutcome::Fail {
                 message: format!(
                     "Font /{font_label}: ToUnicode CMap maps {null_mappings} character code(s) to U+0000 (null) — glyphs have no Unicode representation"
+                ),
+                location: location.cloned(),
+            },
+        });
+    }
+
+    if nonchar_mappings > 0 {
+        results.push(CheckResult {
+            rule_id: "31-007".to_string(),
+            checkpoint: 31,
+            description: format!(
+                "Font /{font_label}: ToUnicode CMap has {nonchar_mappings} mapping(s) to Unicode noncharacters"
+            ),
+            severity: Severity::Error,
+            outcome: CheckOutcome::Fail {
+                message: format!(
+                    "Font /{font_label}: ToUnicode CMap maps {nonchar_mappings} character code(s) to Unicode noncharacters (U+FFFE, U+FEFF, U+FFFF, or U+FDD0-U+FDEF)"
                 ),
                 location: location.cloned(),
             },
@@ -272,6 +310,34 @@ fn check_encoding_differences(
     }
 
     let Ok(enc_obj) = font_dict.get_deref(b"Encoding", doc) else {
+        // TrueType fonts should have an /Encoding entry for proper character mapping.
+        // Without it, glyphs can't be reliably mapped to Unicode.
+        if subtype.as_deref() == Some(b"TrueType") {
+            // Check if it's a symbolic font (Flags bit 3 set in FontDescriptor)
+            let is_symbolic = font_dict
+                .get_deref(b"FontDescriptor", doc)
+                .ok()
+                .and_then(|o| o.as_dict().ok())
+                .and_then(|d| d.get(b"Flags").ok())
+                .and_then(|o| o.as_i64().ok())
+                .is_some_and(|flags| flags & 0x04 != 0); // bit 3 = symbolic
+            if !is_symbolic {
+                results.push(CheckResult {
+                    rule_id: "31-005".to_string(),
+                    checkpoint: 31,
+                    description: format!(
+                        "Font /{font_label}: TrueType font missing /Encoding"
+                    ),
+                    severity: Severity::Error,
+                    outcome: CheckOutcome::Fail {
+                        message: format!(
+                            "Font /{font_label}: Non-symbolic TrueType font must have /Encoding for proper character mapping"
+                        ),
+                        location: location.cloned(),
+                    },
+                });
+            }
+        }
         return;
     };
 
@@ -930,10 +996,27 @@ fn check_type0_cmap_encoding(
                             });
                         }
                     }
-                    // Note: CIDFont Supplement does NOT need to match or exceed
-                    // the CMap Supplement. Per ISO 32000-1, a CIDFont with a lower
-                    // Supplement is valid as long as it covers the CIDs actually used.
-                    // See veraPDF test 7.21.3.1-t01-pass-d.pdf which validates this.
+                    // The CIDFont Supplement must NOT exceed the CMap Supplement.
+                    // A CIDFont with a higher Supplement than the CMap references CIDs
+                    // the CMap cannot map. A lower Supplement is valid (pass-d confirms).
+                    if let Some(font_sup) = _font_sup {
+                        if font_sup > _cmap_sup {
+                            results.push(CheckResult {
+                                rule_id: "31-003".to_string(),
+                                checkpoint: 31,
+                                description: format!(
+                                    "Font /{font_label}: CIDFont Supplement ({font_sup}) exceeds CMap Supplement ({_cmap_sup})"
+                                ),
+                                severity: Severity::Error,
+                                outcome: CheckOutcome::Fail {
+                                    message: format!(
+                                        "Font /{font_label}: CIDFont CIDSystemInfo Supplement ({font_sup}) is greater than CMap CIDSystemInfo Supplement ({_cmap_sup}) — CIDFont may reference CIDs the CMap cannot map"
+                                    ),
+                                    location: location.cloned(),
+                                },
+                            });
+                        }
+                    }
                 }
             }
         }

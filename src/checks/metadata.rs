@@ -66,7 +66,9 @@ fn check_document_language(doc: &mut HornDocument, results: &mut Vec<CheckResult
             }
         }
         Err(_) => {
-            // No catalog /Lang — check if structure tree elements provide it
+            // No catalog /Lang — check if structure tree elements provide it.
+            // Per PDF/UA-1, catalog /Lang is required, but veraPDF's corpus
+            // accepts struct-level /Lang as valid (many pass files use it).
             if has_struct_level_lang(catalog, lopdf_doc) {
                 results.push(CheckResult {
                     rule_id: "06-001".to_string(),
@@ -102,14 +104,12 @@ fn has_struct_level_lang(catalog: &lopdf::Dictionary, doc: &lopdf::Document) -> 
         Err(_) => return false,
     };
 
-    // Check StructTreeRoot itself for /Lang
     if let Ok(lang) = struct_tree.get(b"Lang") {
         if lang.as_str().is_ok_and(|s| !s.is_empty()) {
             return true;
         }
     }
 
-    // Check direct children
     let Ok(kids) = struct_tree.get(b"K") else {
         return false;
     };
@@ -119,7 +119,7 @@ fn has_struct_level_lang(catalog: &lopdf::Dictionary, doc: &lopdf::Document) -> 
 fn check_kids_for_lang(obj: &lopdf::Object, doc: &lopdf::Document, depth: usize) -> bool {
     if depth > 5 {
         return false;
-    } // Don't go too deep
+    }
 
     match obj {
         lopdf::Object::Reference(ref_id) => {
@@ -130,7 +130,6 @@ fn check_kids_for_lang(obj: &lopdf::Object, doc: &lopdf::Document, depth: usize)
                             return true;
                         }
                     }
-                    // Check this element's children
                     if let Ok(kids) = dict.get(b"K") {
                         return check_kids_for_lang(kids, doc, depth + 1);
                     }

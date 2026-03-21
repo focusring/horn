@@ -3,7 +3,7 @@ name = "horn-desktop"
 version = "0.1.0"
 edition = "2024"
 description = "Desktop GUI for Horn PDF/UA accessibility checker"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

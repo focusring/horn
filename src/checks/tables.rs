@@ -94,12 +94,13 @@ impl Check for TableChecks {
                 ));
             }
 
-            // 15-004: Scope values must be /Row, /Column, or /Both
-            if table.has_scope_attr && !table.has_valid_scope {
+            // 15-004: Scope values must be /Row, /Column, or /Both.
+            // Report when any TH has an invalid Scope, even if other THs have valid ones.
+            if table.has_invalid_scope {
                 results.push(fail(
                     "15-004",
                     15,
-                    &format!("{table_label}: TH cells have /Scope with invalid value (must be /Row, /Column, or /Both)"),
+                    &format!("{table_label}: TH cell(s) have /Scope with invalid value (must be /Row, /Column, or /Both)"),
                 ));
             }
 
@@ -156,6 +157,7 @@ struct TableInfo {
     has_headers_attr: bool,
     has_scope_attr: bool,
     has_valid_scope: bool,
+    has_invalid_scope: bool,
     has_thead: bool,
     attr_issues: Vec<String>,
     span_values: Vec<SpanInfo>,
@@ -192,6 +194,7 @@ fn collect_tables(
                 has_headers_attr: false,
                 has_scope_attr: false,
                 has_valid_scope: false,
+                has_invalid_scope: false,
                 has_thead: false,
                 attr_issues: Vec::new(),
                 span_values: Vec::new(),
@@ -274,6 +277,8 @@ fn analyze_row(
                             table.has_scope_attr = true;
                             if valid {
                                 table.has_valid_scope = true;
+                            } else {
+                                table.has_invalid_scope = true;
                             }
                         }
                     }

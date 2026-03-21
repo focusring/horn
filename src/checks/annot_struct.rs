@@ -363,7 +363,7 @@ fn check_annot_accessible_text(
                 .is_some_and(|f| f & 0x23 != 0)
                 || has_inherited_flag_hidden(doc, annot_dict, 10);
             let has_appearance = annot_dict.get(b"AP").is_ok();
-            if !is_hidden && has_appearance {
+            if !is_hidden && has_appearance && !is_zero_size_rect(annot_dict) {
                 let has_tu = has_inherited_key(doc, annot_dict, b"TU", 10);
                 if !has_tu && !info.parent_has_alt {
                     results.push(annot_fail(
@@ -413,6 +413,7 @@ fn check_annot_accessible_text(
                 if !has_contents
                     && !info.parent_has_alt
                     && !matches!(subtype, b"Popup" | b"PrinterMark" | b"TrapNet")
+                    && !is_zero_size_rect(annot_dict)
                 {
                     let type_str = String::from_utf8_lossy(subtype);
                     results.push(annot_fail(
@@ -607,6 +608,35 @@ fn has_inherited_key(
         }
     }
     false
+}
+
+/// Check if an annotation has a zero-size or degenerate /Rect (effectively invisible).
+/// A zero-size rect like [800, 800, 800, 800] means the annotation is off-page or invisible,
+/// so it doesn't require accessible text.
+fn is_zero_size_rect(dict: &lopdf::Dictionary) -> bool {
+    let Ok(rect_obj) = dict.get(b"Rect") else {
+        return false;
+    };
+    let Ok(arr) = rect_obj.as_array() else {
+        return false;
+    };
+    if arr.len() != 4 {
+        return false;
+    }
+    let coords: Vec<f64> = arr
+        .iter()
+        .filter_map(|o| match o {
+            lopdf::Object::Real(f) => Some(*f as f64),
+            lopdf::Object::Integer(i) => Some(*i as f64),
+            _ => None,
+        })
+        .collect();
+    if coords.len() != 4 {
+        return false;
+    }
+    let width = (coords[2] - coords[0]).abs();
+    let height = (coords[3] - coords[1]).abs();
+    width < 0.001 || height < 0.001
 }
 
 /// Check if a dictionary has a non-empty string value for a key.

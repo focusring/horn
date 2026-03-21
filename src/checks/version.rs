@@ -33,7 +33,7 @@ impl Check for VersionChecks {
 
         if let Some(xmp) = xmp_content {
             let xmp_str = String::from_utf8_lossy(&xmp);
-            check_pdfuaid_part_value(&xmp_str, standard, &mut results);
+            check_pdfuaid_part_value(&xmp_str, standard, doc, &mut results);
             check_extension_schema(&xmp_str, &mut results);
         }
 
@@ -92,7 +92,12 @@ fn check_metadata_stream_exists(
 /// Handles both XMP syntaxes:
 /// - Element: `<pdfuaid:part>1</pdfuaid:part>` (common in UA-1)
 /// - Attribute: `pdfuaid:part="2"` (common in UA-2)
-fn check_pdfuaid_part_value(xmp: &str, _standard: Standard, results: &mut Vec<CheckResult>) {
+fn check_pdfuaid_part_value(
+    xmp: &str,
+    _standard: Standard,
+    doc: &mut HornDocument,
+    results: &mut Vec<CheckResult>,
+) {
     // Try to extract pdfuaid:part value from either syntax
     let part_value = extract_pdfuaid_part(xmp);
 
@@ -107,7 +112,18 @@ fn check_pdfuaid_part_value(xmp: &str, _standard: Standard, results: &mut Vec<Ch
                     results.push(pass("05-002", "XMP pdfuaid:part value is 1 (PDF/UA-1)"));
                 }
                 Ok(2) => {
-                    results.push(pass("05-002", "XMP pdfuaid:part value is 2 (PDF/UA-2)"));
+                    // PDF/UA-2 requires PDF 2.0 (ISO 32000-2)
+                    let pdf_version = &doc.lopdf().version;
+                    if pdf_version.starts_with("2.") {
+                        results.push(pass("05-002", "XMP pdfuaid:part value is 2 (PDF/UA-2)"));
+                    } else {
+                        results.push(fail(
+                            "05-002",
+                            &format!(
+                                "PDF/UA-2 (pdfuaid:part=2) requires PDF 2.0 but document is PDF {pdf_version}"
+                            ),
+                        ));
+                    }
                 }
                 Ok(n) => {
                     results.push(fail(
@@ -190,8 +206,18 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
         return;
     }
 
-    // xmlns:pdfuaid with correct URI is always sufficient (for both UA-1 and UA-2)
-    if has_xmlns_decl {
+    // xmlns:pdfuaid with correct URI is sufficient for namespace declaration,
+    // BUT we still need to check the extension schema for wrong prefixes if present.
+    if has_xmlns_decl && !has_extension_schemas {
+        results.push(pass(
+            "05-004",
+            "XMP pdfuaid namespace declared via xmlns:pdfuaid with correct URI",
+        ));
+        return;
+    }
+
+    if has_xmlns_decl && !xmp.contains("<pdfaSchema:namespaceURI>") {
+        // xmlns present and no extension schemas to check
         results.push(pass(
             "05-004",
             "XMP pdfuaid namespace declared via xmlns:pdfuaid with correct URI",
@@ -209,9 +235,8 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
         return;
     }
 
-    // Check for duplicate schema definitions: count occurrences of pdfaSchema:prefix
-    // with pdfuaid-related values. Two separate schema blocks for the same namespace
-    // is invalid.
+    // Check for duplicate schema definitions: count occurrences of schema blocks
+    // that reference the pdfua namespace URI.
     let schema_blocks: Vec<_> = xmp.match_indices("<pdfaSchema:namespaceURI>").collect();
     let pdfua_schema_count = schema_blocks
         .iter()
@@ -222,59 +247,66 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
         })
         .count();
 
-    match pdfua_schema_count.cmp(&1) {
-        std::cmp::Ordering::Greater => {
-            results.push(fail(
-                "05-005",
-                &format!(
-                    "XMP has {pdfua_schema_count} duplicate extension schema definitions for PDF/UA namespace — must have exactly one"
-                ),
-            ));
-        }
-        std::cmp::Ordering::Equal => {
-            // Verify the prefix is correct (pdfuaid, not pdfuaia or something else)
-            let prefix_tag = "<pdfaSchema:prefix>";
-            let prefix_end = "</pdfaSchema:prefix>";
+    if pdfua_schema_count > 1 {
+        results.push(fail(
+            "05-005",
+            &format!(
+                "XMP has {pdfua_schema_count} duplicate extension schema definitions for PDF/UA namespace — must have exactly one"
+            ),
+        ));
+        return;
+    }
 
-            // Find all prefix declarations and check ones near pdfua namespace
-            let mut found_correct_prefix = false;
-            let mut pos = 0;
-            while let Some(idx) = xmp[pos..].find(prefix_tag) {
-                let abs_idx = pos + idx;
-                let value_start = abs_idx + prefix_tag.len();
-                if let Some(end_rel) = xmp[value_start..].find(prefix_end) {
-                    let prefix_value = xmp[value_start..value_start + end_rel].trim();
-                    // Check if this prefix block is near the pdfua namespace URI
-                    let context_start = abs_idx.saturating_sub(500);
-                    let context_end = (abs_idx + 500).min(xmp.len());
-                    let context = &xmp[context_start..context_end];
-                    if context.contains(pdfua_ns) && prefix_value == "pdfuaid" {
-                        found_correct_prefix = true;
-                    }
-                    pos = value_start + end_rel + prefix_end.len();
-                } else {
-                    break;
+    // Check ALL prefix declarations near pdfua namespace URI.
+    // Even with just one schema block, a second schema with a *wrong* prefix
+    // for the same URI is invalid (e.g. "pdfuaia" instead of "pdfuaid").
+    let prefix_tag = "<pdfaSchema:prefix>";
+    let prefix_end = "</pdfaSchema:prefix>";
+
+    let mut found_correct_prefix = false;
+    let mut found_wrong_prefix = false;
+    let mut wrong_prefix_value = String::new();
+    let mut pos = 0;
+    while let Some(idx) = xmp[pos..].find(prefix_tag) {
+        let abs_idx = pos + idx;
+        let value_start = abs_idx + prefix_tag.len();
+        if let Some(end_rel) = xmp[value_start..].find(prefix_end) {
+            let prefix_value = xmp[value_start..value_start + end_rel].trim();
+            // Check if this prefix block is near the pdfua namespace URI
+            let context_start = abs_idx.saturating_sub(500);
+            let context_end = (abs_idx + 500).min(xmp.len());
+            let context = &xmp[context_start..context_end];
+            if context.contains(pdfua_ns) {
+                if prefix_value == "pdfuaid" {
+                    found_correct_prefix = true;
+                } else if !prefix_value.is_empty() {
+                    found_wrong_prefix = true;
+                    wrong_prefix_value = prefix_value.to_string();
                 }
             }
+            pos = value_start + end_rel + prefix_end.len();
+        } else {
+            break;
+        }
+    }
 
-            if found_correct_prefix {
-                results.push(pass(
-                    "05-004",
-                    "XMP extension schema for pdfuaid is properly defined",
-                ));
-            } else {
-                results.push(fail(
-                    "05-004",
-                    "XMP extension schema prefix does not match 'pdfuaid'",
-                ));
-            }
-        }
-        std::cmp::Ordering::Less => {
-            results.push(fail(
-                "05-004",
-                "XMP extension schema for PDF/UA namespace not found",
-            ));
-        }
+    if found_wrong_prefix {
+        results.push(fail(
+            "05-004",
+            &format!(
+                "XMP extension schema has wrong prefix '{wrong_prefix_value}' for PDF/UA namespace (must be 'pdfuaid')"
+            ),
+        ));
+    } else if found_correct_prefix {
+        results.push(pass(
+            "05-004",
+            "XMP extension schema for pdfuaid is properly defined",
+        ));
+    } else if pdfua_schema_count == 0 {
+        results.push(fail(
+            "05-004",
+            "XMP extension schema for PDF/UA namespace not found",
+        ));
     }
 }
 

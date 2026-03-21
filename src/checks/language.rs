@@ -34,10 +34,11 @@ impl Check for LanguageChecks {
         let lopdf_doc = doc.lopdf();
 
         // 11-002: Validate document-level Lang
+        // Use get_deref to follow indirect references, and accept both String and Name types.
         let doc_lang = catalog
-            .get(b"Lang")
+            .get_deref(b"Lang", lopdf_doc)
             .ok()
-            .and_then(|o| o.as_str().ok())
+            .and_then(|o| o.as_str().or_else(|_| o.as_name()).ok())
             .map(<[u8]>::to_vec);
 
         if let Some(ref lang) = doc_lang {
@@ -48,6 +49,21 @@ impl Check for LanguageChecks {
                     &format!("Document /Lang \"{display}\" is not a valid BCP 47 language tag"),
                 ));
             }
+        }
+
+        // Check text strings that need language context (outside struct tree).
+        // Only flag when there's no catalog /Lang AND no struct-level /Lang.
+        // When struct elements provide /Lang, text strings in the document
+        // are considered to have language context by veraPDF's interpretation.
+        let has_catalog_lang = doc_lang.as_ref().is_some_and(|l| !l.is_empty());
+        let has_any_struct_lang = has_catalog_lang
+            || get_struct_tree(catalog, lopdf_doc)
+                .is_some_and(|st| has_struct_level_lang(lopdf_doc, st, 0));
+
+        if !has_catalog_lang && !has_any_struct_lang {
+            check_outline_language(lopdf_doc, catalog, &mut results);
+            check_annotation_text_language(lopdf_doc, &mut results);
+            check_dc_title_language(lopdf_doc, catalog, &mut results);
         }
 
         // Walk structure tree for language checks
@@ -319,6 +335,251 @@ fn walk_struct_tree_with_lang(
             visit_child(d);
         }
         _ => {}
+    }
+}
+
+/// Check if any element in the structure tree has a /Lang attribute.
+fn has_struct_level_lang(doc: &lopdf::Document, dict: &lopdf::Dictionary, depth: usize) -> bool {
+    if depth > 10 {
+        return false;
+    }
+    if let Ok(lang) = dict.get(b"Lang") {
+        if lang.as_str().is_ok_and(|s| !s.is_empty()) {
+            return true;
+        }
+    }
+    let Ok(kids) = dict.get(b"K") else {
+        return false;
+    };
+    match kids {
+        lopdf::Object::Array(arr) => arr.iter().any(|kid| {
+            if let Ok(ref_id) = kid.as_reference() {
+                doc.get_object(ref_id)
+                    .ok()
+                    .and_then(|o| o.as_dict().ok())
+                    .is_some_and(|d| has_struct_level_lang(doc, d, depth + 1))
+            } else if let Ok(d) = kid.as_dict() {
+                has_struct_level_lang(doc, d, depth + 1)
+            } else {
+                false
+            }
+        }),
+        lopdf::Object::Reference(ref_id) => doc
+            .get_object(*ref_id)
+            .ok()
+            .and_then(|o| o.as_dict().ok())
+            .is_some_and(|d| has_struct_level_lang(doc, d, depth + 1)),
+        _ => false,
+    }
+}
+
+/// 02-001: Outline entries (bookmarks) with /Title text must have language context.
+///
+/// When there's no catalog /Lang, outline text strings have no language specification,
+/// making them inaccessible to assistive technologies that need to know the language
+/// for proper text-to-speech rendering.
+fn check_outline_language(
+    doc: &lopdf::Document,
+    catalog: &lopdf::Dictionary,
+    results: &mut Vec<CheckResult>,
+) {
+    let Ok(outlines_obj) = catalog.get(b"Outlines") else {
+        return;
+    };
+    let outlines_ref = outlines_obj.as_reference().ok();
+    let outlines = outlines_ref
+        .and_then(|r| doc.get_object(r).ok())
+        .and_then(|o| o.as_dict().ok());
+    let Some(outlines_dict) = outlines else {
+        return;
+    };
+
+    // Check if any outline item has /Title (they almost always do)
+    let has_titles = has_outline_titles(doc, outlines_dict, 0);
+    if has_titles {
+        results.push(fail(
+            "02-001",
+            "Outline entries have /Title text but no language context (catalog /Lang is missing)",
+        ));
+    }
+}
+
+fn has_outline_titles(doc: &lopdf::Document, node: &lopdf::Dictionary, depth: usize) -> bool {
+    if depth > 50 {
+        return false;
+    }
+    let Ok(first_obj) = node.get(b"First") else {
+        return false;
+    };
+    let first_ref = first_obj.as_reference().ok();
+    let first = first_ref
+        .and_then(|r| doc.get_object(r).ok())
+        .and_then(|o| o.as_dict().ok());
+    let Some(item) = first else {
+        return false;
+    };
+
+    // Check this item for /Title
+    if item.get(b"Title").is_ok() {
+        return true;
+    }
+
+    // Check siblings via /Next chain
+    let mut current = item;
+    loop {
+        let Ok(next_obj) = current.get(b"Next") else {
+            break;
+        };
+        let next_ref = next_obj.as_reference().ok();
+        let next = next_ref
+            .and_then(|r| doc.get_object(r).ok())
+            .and_then(|o| o.as_dict().ok());
+        let Some(next_dict) = next else {
+            break;
+        };
+        if next_dict.get(b"Title").is_ok() {
+            return true;
+        }
+        current = next_dict;
+    }
+
+    false
+}
+
+/// 02-002: Annotation text strings (/Contents, /TU) need language context.
+///
+/// When there's no catalog /Lang, text strings on annotations have no language,
+/// making them inaccessible for text-to-speech.
+fn check_annotation_text_language(
+    doc: &lopdf::Document,
+    results: &mut Vec<CheckResult>,
+) {
+    let pages = doc.get_pages();
+    let mut contents_without_lang = 0;
+    let mut tu_without_lang = 0;
+
+    for (_page_num, page_id) in &pages {
+        let Ok(page_obj) = doc.get_object(*page_id) else {
+            continue;
+        };
+        let Ok(page_dict) = page_obj.as_dict() else {
+            continue;
+        };
+        let Ok(annots_obj) = page_dict.get(b"Annots") else {
+            continue;
+        };
+
+        let annots = if let Ok(arr) = annots_obj.as_array() {
+            arr.clone()
+        } else if let Ok(ref_id) = annots_obj.as_reference() {
+            if let Ok(obj) = doc.get_object(ref_id) {
+                obj.as_array().cloned().unwrap_or_default()
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        };
+
+        for annot_obj in &annots {
+            let annot = if let Ok(ref_id) = annot_obj.as_reference() {
+                doc.get_object(ref_id).ok().and_then(|o| o.as_dict().ok())
+            } else {
+                annot_obj.as_dict().ok()
+            };
+            let Some(annot_dict) = annot else { continue };
+
+            // Check /Contents (non-empty)
+            if let Ok(contents) = annot_dict.get(b"Contents") {
+                if contents.as_str().is_ok_and(|s| !s.is_empty()) {
+                    contents_without_lang += 1;
+                }
+            }
+            // Check /TU (non-empty)
+            if let Ok(tu) = annot_dict.get(b"TU") {
+                if tu.as_str().is_ok_and(|s| !s.is_empty()) {
+                    tu_without_lang += 1;
+                }
+            }
+        }
+    }
+
+    if contents_without_lang > 0 {
+        results.push(fail(
+            "02-002",
+            &format!(
+                "{contents_without_lang} annotation(s) have /Contents text but no language context (catalog /Lang is missing)"
+            ),
+        ));
+    }
+    if tu_without_lang > 0 {
+        results.push(fail(
+            "02-003",
+            &format!(
+                "{tu_without_lang} form field(s) have /TU text but no language context (catalog /Lang is missing)"
+            ),
+        ));
+    }
+}
+
+/// 02-004: XMP dc:title must have a real language when no catalog /Lang.
+///
+/// If dc:title only has `xml:lang="x-default"` and no catalog /Lang provides
+/// language context, the title has no usable language specification.
+fn check_dc_title_language(
+    doc: &lopdf::Document,
+    catalog: &lopdf::Dictionary,
+    results: &mut Vec<CheckResult>,
+) {
+    let Ok(meta_obj) = catalog.get(b"Metadata") else {
+        return;
+    };
+    let Ok(meta_ref) = meta_obj.as_reference() else {
+        return;
+    };
+    let Ok(meta_resolved) = doc.get_object(meta_ref) else {
+        return;
+    };
+    let Ok(stream) = meta_resolved.as_stream() else {
+        return;
+    };
+    let Ok(content) = stream.get_plain_content() else {
+        return;
+    };
+    let xmp = String::from_utf8_lossy(&content);
+
+    // Check if dc:title exists
+    if !xmp.contains("dc:title") {
+        return;
+    }
+
+    // Extract the dc:title section and check xml:lang attributes
+    if let Some(start) = xmp.find("dc:title") {
+        if let Some(end) = xmp[start..].find("/dc:title") {
+            let title_section = &xmp[start..start + end];
+            // Find all xml:lang values
+            let lang_pattern = "xml:lang=\"";
+            let mut has_real_lang = false;
+            let mut pos = 0;
+            while let Some(idx) = title_section[pos..].find(lang_pattern) {
+                let abs = pos + idx + lang_pattern.len();
+                if let Some(end_quote) = title_section[abs..].find('"') {
+                    let lang_val = &title_section[abs..abs + end_quote];
+                    if lang_val != "x-default" && !lang_val.is_empty() {
+                        has_real_lang = true;
+                    }
+                    pos = abs + end_quote;
+                } else {
+                    break;
+                }
+            }
+            if !has_real_lang {
+                results.push(fail(
+                    "02-004",
+                    "XMP dc:title has no language specification (only x-default) and catalog /Lang is missing",
+                ));
+            }
+        }
     }
 }
 

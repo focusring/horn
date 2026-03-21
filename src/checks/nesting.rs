@@ -335,6 +335,16 @@ fn validate_toc_children(children: &[ChildInfo], results: &mut Vec<CheckResult>)
         }
     }
 
+    // Caption must be the first child of TOC (before TOCI entries)
+    for &pos in &caption_positions {
+        if pos != 0 {
+            results.push(fail(
+                "09-006",
+                "Caption in TOC is not the first child — TOC Caption must precede TOCI entries",
+            ));
+        }
+    }
+
     if caption_positions.len() > 1 {
         results.push(fail("09-006", "TOC has more than one Caption"));
     }

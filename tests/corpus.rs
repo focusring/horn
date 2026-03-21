@@ -471,7 +471,7 @@ fn coverage_baseline() {
 
     // =========================================================================
     // BASELINE ASSERTIONS — floors that future changes must meet or exceed.
-    // BASELINE — recorded 2026-03-21.
+    // BASELINE — updated 2026-03-21.
     // =========================================================================
 
     assert!(
@@ -502,14 +502,14 @@ fn coverage_baseline() {
         ref_pdfs.len()
     );
     assert!(
-        ua1_pass_compliant >= 139,
-        "UA-1 pass rate regression: {}/{} (baseline: 139/141)",
+        ua1_pass_compliant >= 141,
+        "UA-1 pass rate regression: {}/{} (baseline: 141/141)",
         ua1_pass_compliant,
         ua1_pass.len()
     );
     assert!(
-        ua1_fail_detected >= 126,
-        "UA-1 fail detection regression: {}/{} (baseline: 126/155)",
+        ua1_fail_detected >= 138,
+        "UA-1 fail detection regression: {}/{} (baseline: 138/155)",
         ua1_fail_detected,
         ua1_fail.len()
     );
