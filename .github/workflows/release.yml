@@ -6,8 +6,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
   security-events: write
 
 env:
@@ -178,47 +176,10 @@ jobs:
           path: desktop-out/*
           if-no-files-found: warn
 
-  # ── Docs ──
-  docs:
-    name: Deploy Docs
-    needs: check
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: docs/pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: cd docs && pnpm install --frozen-lockfile
-
-      - name: Build docs
-        run: cd docs && pnpm build
-
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: docs/.vitepress/dist
-
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
-
   # ── Create GitHub Release with all artifacts ──
   publish:
     name: Publish Release
-    needs: [cli, wasm, desktop, docs]
+    needs: [cli, wasm, desktop]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
@@ -251,4 +212,4 @@ jobs:
             **Desktop**: Download the installer for your platform below
             **npm (WASM)**: `npm install @focusring/horn-wasm`
             **GitHub Action**: `uses: focusring/horn@v1`
-            **Docs**: https://focusring.github.io/horn/
+            **Docs**: https://horn.focusring.nl/
