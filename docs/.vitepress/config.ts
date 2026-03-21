@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import pkg from '../package.json'
 
 export default defineConfig({
   base: '/horn/',
@@ -16,7 +17,7 @@ export default defineConfig({
       { text: 'Demo', link: '/demo' },
       { text: 'Downloads', link: 'https://github.com/focusring/horn/releases/latest' },
       {
-        text: 'v0.1.0',
+        text: `v${pkg.version}`,
         items: [
           { text: 'Changelog', link: 'https://github.com/focusring/horn/releases' },
           { text: 'GitHub', link: 'https://github.com/focusring/horn' },

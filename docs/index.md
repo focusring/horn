@@ -7,7 +7,7 @@ hero:
     alt: Horn logo
   name: Horn
   text: PDF accessibility testing at scale
-  tagline: "Open-source PDF/UA checker based on the Matterhorn Protocol — v0.1.0"
+  tagline: "Open-source PDF/UA checker based on the Matterhorn Protocol"
   actions:
     - theme: brand
       text: Get Started
