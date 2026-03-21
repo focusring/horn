@@ -6,7 +6,7 @@
 
 Validate PDF files against PDF/UA-1.
 
-```
+```bash
 horn validate <FILES...> [OPTIONS]
 ```
 
@@ -29,7 +29,7 @@ horn validate <FILES...> [OPTIONS]
 
 Print all registered checks with their ID, checkpoint number, and description.
 
-```
+```bash
 horn list-checks
 ```
 
@@ -37,7 +37,7 @@ horn list-checks
 
 Generate shell completion scripts.
 
-```
+```bash
 horn completions <SHELL>
 ```
 
