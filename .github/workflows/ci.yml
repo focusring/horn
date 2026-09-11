@@ -28,6 +28,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+      - name: Version strings are in sync
+        run: scripts/check-version.sh
+
       - name: Clippy
         run: cargo clippy -- -D warnings
 

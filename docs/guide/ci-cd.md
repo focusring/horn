@@ -11,7 +11,7 @@ The simplest way to add Horn to GitHub Actions:
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: focusring/horn@v1
+  - uses: focusring/horn@v0
     with:
       path: ./output/
       format: sarif

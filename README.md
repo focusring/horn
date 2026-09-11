@@ -84,7 +84,7 @@ horn completions fish > ~/.config/fish/completions/horn.fish
 ## GitHub Action
 
 ```yaml
-- uses: focusring/horn@v1
+- uses: focusring/horn@v0
   with:
     path: ./output/
     format: sarif
