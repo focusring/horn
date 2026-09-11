@@ -7,9 +7,9 @@ use lopdf::content::Content;
 /// Content stream analysis checks.
 ///
 /// Parses PDF page content streams to detect:
-/// - 01-001: Content not wrapped in marked content sequences (untagged text/images)
-/// - 01-005: Artifact content nested inside tagged content
-/// - 30-001: Form `XObjects` not properly tagged
+/// - 01-003: Artifact content nested inside tagged content
+/// - 01-004: Tagged content nested inside Artifact content
+/// - 01-005: Content not wrapped in marked content sequences (untagged text/images)
 pub struct ContentStreamChecks;
 
 impl Check for ContentStreamChecks {
@@ -21,10 +21,15 @@ impl Check for ContentStreamChecks {
         1
     }
 
-    fn description(&self) -> &'static str {
-        "Content stream: untagged content, artifact nesting, XObject tagging"
+    fn rules(&self) -> &'static [&'static str] {
+        &["01-003", "01-004", "01-005"]
     }
 
+    fn description(&self) -> &'static str {
+        "Content stream: untagged content, artifact nesting"
+    }
+
+    #[allow(clippy::too_many_lines)]
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>> {
         let mut results = Vec::new();
         let lopdf_doc = doc.lopdf();
@@ -34,33 +39,36 @@ impl Check for ContentStreamChecks {
         let mut untagged_text_ops = 0u32;
         let mut untagged_xobject_ops = 0u32;
         let mut artifact_in_tagged = 0u32;
-        let mut notdef_usage = 0u32;
+        let mut tagged_in_artifact = 0u32;
         let mut pages_analyzed = 0u32;
 
-        for (page_num, page_id) in &pages {
-            let Ok(content_data) = lopdf_doc.get_page_content(*page_id) else {
+        for page_id in pages.values() {
+            let content_data = lopdf_doc.get_page_content(*page_id);
+            if content_data.is_empty() {
                 continue;
-            };
+            }
 
             let Ok(content) = Content::decode(&content_data) else {
                 continue;
             };
 
             pages_analyzed += 1;
-            let page_result = analyze_page_content(&content.operations, *page_num);
+            let resources = crate::content::page_resources(lopdf_doc, *page_id);
+            let properties = properties_of(lopdf_doc, resources);
+            let page_result = analyze_page_content(lopdf_doc, &content.operations, properties);
 
             total_text_ops += page_result.total_text_ops;
             untagged_text_ops += page_result.untagged_text_ops;
             untagged_xobject_ops += page_result.untagged_xobject_ops;
             artifact_in_tagged += page_result.artifact_inside_tagged;
-            notdef_usage += page_result.notdef_glyph_usage;
+            tagged_in_artifact += page_result.tagged_inside_artifact;
         }
 
-        // 01-001: Untagged content detection
+        // 01-005: Untagged content detection
         if total_text_ops > 0 {
             if untagged_text_ops > 0 {
                 results.push(CheckResult {
-                    rule_id: "01-001".to_string(),
+                    rule_id: "01-005".to_string(),
                     checkpoint: 1,
                     description: format!(
                         "{untagged_text_ops} of {total_text_ops} text operation(s) are outside marked content"
@@ -75,7 +83,7 @@ impl Check for ContentStreamChecks {
                 });
             } else {
                 results.push(CheckResult {
-                    rule_id: "01-001".to_string(),
+                    rule_id: "01-005".to_string(),
                     checkpoint: 1,
                     description: "All text content is inside marked content sequences".to_string(),
                     severity: Severity::Info,
@@ -84,10 +92,10 @@ impl Check for ContentStreamChecks {
             }
         }
 
-        // 01-002: Untagged XObject (image/form) invocations
+        // 01-005: Untagged XObject (image/form) invocations
         if untagged_xobject_ops > 0 {
             results.push(CheckResult {
-                rule_id: "01-002".to_string(),
+                rule_id: "01-005".to_string(),
                 checkpoint: 1,
                 description: format!(
                     "{untagged_xobject_ops} XObject invocation(s) are outside marked content"
@@ -102,28 +110,28 @@ impl Check for ContentStreamChecks {
             });
         }
 
-        // 31-025: .notdef glyph usage (CID 0 / \x00\x00 in text strings)
-        if notdef_usage > 0 {
+        // 01-004: Tagged content inside Artifact content
+        if tagged_in_artifact > 0 {
             results.push(CheckResult {
-                rule_id: "31-025".to_string(),
-                checkpoint: 31,
+                rule_id: "01-004".to_string(),
+                checkpoint: 1,
                 description: format!(
-                    "{notdef_usage} text operation(s) reference the .notdef glyph (CID 0)"
+                    "{tagged_in_artifact} tagged marked-content sequence(s) found nested inside Artifact content"
                 ),
                 severity: Severity::Error,
                 outcome: CheckOutcome::Fail {
                     message: format!(
-                        "{notdef_usage} text operation(s) use CID 0 (.notdef glyph) — all glyphs must map to valid characters"
+                        "{tagged_in_artifact} BDC sequence(s) with an MCID are nested inside /Artifact marked content — real content must not be inside artifacts"
                     ),
                     location: None,
                 },
             });
         }
 
-        // 01-005: Artifact content inside tagged content
+        // 01-003: Artifact content inside tagged content
         if artifact_in_tagged > 0 {
             results.push(CheckResult {
-                rule_id: "01-005".to_string(),
+                rule_id: "01-003".to_string(),
                 checkpoint: 1,
                 description: format!(
                     "{artifact_in_tagged} Artifact marker(s) found nested inside tagged content"
@@ -147,27 +155,50 @@ struct PageAnalysis {
     untagged_text_ops: u32,
     untagged_xobject_ops: u32,
     artifact_inside_tagged: u32,
-    notdef_glyph_usage: u32,
+    tagged_inside_artifact: u32,
+}
+
+/// Effective state of an open marked-content sequence.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum McKind {
+    /// `BDC` with an `/MCID` — real content that belongs to the structure tree.
+    Tagged,
+    /// `/Artifact BMC` or `/Artifact BDC`.
+    Artifact,
+    /// Any other sequence (e.g. `/Span BMC`, `/Span <</Lang ..>> BDC`): it does
+    /// not by itself associate content with the structure tree.
+    Other,
 }
 
 /// Analyze a page's content stream operations for marked content coverage.
-fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> PageAnalysis {
+///
+/// `properties` is the page's `/Resources/Properties` dictionary, used to
+/// resolve `BDC` operands given as a name (`/P /MC0 BDC`).
+fn analyze_page_content(
+    doc: &lopdf::Document,
+    ops: &[lopdf::content::Operation],
+    properties: Option<&lopdf::Dictionary>,
+) -> PageAnalysis {
     let mut result = PageAnalysis {
         total_text_ops: 0,
         untagged_text_ops: 0,
         untagged_xobject_ops: 0,
         artifact_inside_tagged: 0,
-        notdef_glyph_usage: 0,
+        tagged_inside_artifact: 0,
     };
 
-    // Track marked content nesting.
-    // mc_stack entries: true = MCID-bearing tagged sequence, false = other
-    let mut mc_stack: Vec<bool> = Vec::new();
+    let mut mc_stack: Vec<McKind> = Vec::new();
+    let inside = |stack: &[McKind], kind: McKind| stack.contains(&kind);
+
     for op in ops {
         match op.operator.as_str() {
             "BMC" => {
-                // BMC has no properties dict, so no MCID — just push as non-tagged
-                mc_stack.push(false);
+                let tag = op.operands.first().and_then(|o| o.as_name().ok());
+                mc_stack.push(if tag == Some(b"Artifact") {
+                    McKind::Artifact
+                } else {
+                    McKind::Other
+                });
             }
             "BDC" => {
                 let tag = op
@@ -175,58 +206,50 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
                     .first()
                     .and_then(|o| o.as_name().ok())
                     .unwrap_or(b"");
-
                 let is_artifact = tag == b"Artifact";
+                let has_mcid = bdc_has_mcid(doc, op.operands.get(1), properties);
 
-                // Check if BDC has an MCID (real structure element content)
-                let has_mcid = op.operands.get(1).is_some_and(|prop| {
-                    if let Ok(dict) = prop.as_dict() {
-                        dict.get(b"MCID").is_ok()
-                    } else {
-                        false
-                    }
-                });
-
-                // Only flag artifact-in-tagged when nested inside MCID-bearing content
-                if is_artifact && mc_stack.iter().any(|m| *m) {
+                // 01-003: artifact nested inside MCID-bearing content
+                if is_artifact && inside(&mc_stack, McKind::Tagged) {
                     result.artifact_inside_tagged += 1;
                 }
+                // 01-004: tagged (MCID-bearing) content nested inside an Artifact
+                if has_mcid && !is_artifact && inside(&mc_stack, McKind::Artifact) {
+                    result.tagged_inside_artifact += 1;
+                }
 
-                mc_stack.push(has_mcid && !is_artifact);
+                mc_stack.push(if is_artifact {
+                    McKind::Artifact
+                } else if has_mcid {
+                    McKind::Tagged
+                } else {
+                    McKind::Other
+                });
             }
             "EMC" => {
                 mc_stack.pop();
             }
 
-            // Text showing operators
+            // Text showing operators: real content must be tagged or an artifact
             "Tj" | "TJ" | "'" | "\"" => {
                 result.total_text_ops += 1;
-                if mc_stack.is_empty() {
+                if !inside(&mc_stack, McKind::Tagged) && !inside(&mc_stack, McKind::Artifact) {
                     result.untagged_text_ops += 1;
-                }
-                // Check for .notdef glyph (CID 0 = \x00\x00) in string operands
-                for operand in &op.operands {
-                    if has_notdef_glyph(operand) {
-                        result.notdef_glyph_usage += 1;
-                    }
                 }
             }
 
             // XObject invocation — only flag image XObjects outside marked content.
-            // Form XObjects (/Fm*) contain their own content stream with their own
-            // marked content structure, so they don't need to be inside page-level
-            // BDC/EMC. Image XObjects (/Im*) are leaf content and must be tagged.
-            "Do" => {
-                if mc_stack.is_empty() {
-                    // Check XObject name — /Im prefix indicates image
-                    let is_image = op
-                        .operands
-                        .first()
-                        .and_then(|o| o.as_name().ok())
-                        .is_some_and(|name| name.starts_with(b"Im"));
-                    if is_image {
-                        result.untagged_xobject_ops += 1;
-                    }
+            // Form XObjects contain their own content stream with their own marked
+            // content structure, so they don't need to be inside page-level BDC/EMC.
+            // Image XObjects are leaf content and must be tagged or artifacts.
+            "Do" if !inside(&mc_stack, McKind::Tagged) && !inside(&mc_stack, McKind::Artifact) => {
+                let is_image = op
+                    .operands
+                    .first()
+                    .and_then(|o| o.as_name().ok())
+                    .is_some_and(|name| name.starts_with(b"Im"));
+                if is_image {
+                    result.untagged_xobject_ops += 1;
                 }
             }
 
@@ -237,73 +260,37 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
     result
 }
 
-/// Check if a text operand contains the .notdef glyph (CID 0 = `\x00\x00`).
-///
-/// In CID fonts, CID 0 is always the .notdef glyph. A 2-byte string starting
-/// with `\x00\x00` indicates .notdef usage. For TJ arrays, check each string element.
-fn has_notdef_glyph(operand: &lopdf::Object) -> bool {
-    match operand {
-        lopdf::Object::String(bytes, _) => {
-            // Check for \x00\x00 (CID 0) in 2-byte aligned positions
-            let data = bytes.as_slice();
-            if data.len() >= 2 {
-                let mut i = 0;
-                while i + 1 < data.len() {
-                    if data[i] == 0 && data[i + 1] == 0 {
-                        return true;
-                    }
-                    i += 2;
-                }
-            }
-            false
-        }
-        lopdf::Object::Array(arr) => {
-            // TJ array: mix of strings and numbers
-            arr.iter().any(|item| {
-                if let lopdf::Object::String(bytes, _) = item {
-                    let data = bytes.as_slice();
-                    if data.len() >= 2 {
-                        let mut i = 0;
-                        while i + 1 < data.len() {
-                            if data[i] == 0 && data[i + 1] == 0 {
-                                return true;
-                            }
-                            i += 2;
-                        }
-                    }
-                }
-                false
+/// Whether a `BDC` property operand (inline dictionary or a name resolved
+/// through `/Resources/Properties`) carries an `/MCID`.
+pub fn bdc_has_mcid(
+    doc: &lopdf::Document,
+    operand: Option<&lopdf::Object>,
+    properties: Option<&lopdf::Dictionary>,
+) -> bool {
+    let Some(operand) = operand else {
+        return false;
+    };
+    let dict = match operand {
+        lopdf::Object::Dictionary(d) => Some(d),
+        lopdf::Object::Name(name) => properties
+            .and_then(|p| p.get(name).ok())
+            .and_then(|o| match o {
+                lopdf::Object::Reference(id) => doc.get_object(*id).ok(),
+                other => Some(other),
             })
-        }
-        _ => false,
-    }
+            .and_then(|o| o.as_dict().ok()),
+        _ => None,
+    };
+    dict.is_some_and(|d| d.get(b"MCID").is_ok())
 }
 
-/// 30-002: Check for Reference `XObjects` which are forbidden in PDF/UA.
-#[allow(dead_code)]
-fn check_reference_xobjects(doc: &lopdf::Document, results: &mut Vec<CheckResult>) {
-    for obj in doc.objects.values() {
-        let Ok(stream) = obj.as_stream() else {
-            continue;
-        };
-
-        let dict = &stream.dict;
-
-        let is_form = dict.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) == Some(b"Form");
-
-        if is_form && dict.get(b"Ref").is_ok() {
-            results.push(CheckResult {
-                rule_id: "30-002".to_string(),
-                checkpoint: 30,
-                description: "Reference XObject found — forbidden in PDF/UA".to_string(),
-                severity: Severity::Error,
-                outcome: CheckOutcome::Fail {
-                    message:
-                        "Form XObject with /Ref key (Reference XObject) is not allowed in PDF/UA"
-                            .to_string(),
-                    location: None,
-                },
-            });
-        }
-    }
+/// The `/Properties` sub-dictionary of a resources dictionary.
+pub fn properties_of<'a>(
+    doc: &'a lopdf::Document,
+    resources: Option<&'a lopdf::Dictionary>,
+) -> Option<&'a lopdf::Dictionary> {
+    resources?
+        .get_deref(b"Properties", doc)
+        .ok()
+        .and_then(|o| o.as_dict().ok())
 }

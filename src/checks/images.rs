@@ -18,6 +18,10 @@ impl Check for ImageChecks {
         13
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["13-004"]
+    }
+
     fn description(&self) -> &'static str {
         "Images: Figure alt text, decorative artifacts"
     }

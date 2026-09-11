@@ -25,7 +25,7 @@ features:
     details: Process 500+ PDFs per second with parallel processing. Built in Rust for maximum throughput — validate entire document libraries in seconds, not hours.
   - icon: "\uD83D\uDD0D"
     title: Matterhorn Protocol
-    details: 21 check modules covering the machine-checkable failure conditions defined in the Matterhorn Protocol 1.1 for PDF/UA-1 (ISO 14289-1) compliance.
+    details: Every failure condition of the Matterhorn Protocol 1.1 for PDF/UA-1 (ISO 14289-1) — 87 machine-checkable conditions automated, 48 human-judgment conditions surfaced for manual review, 2 without a defined test. 100% on the veraPDF PDF/UA-1 corpus.
   - icon: "\uD83D\uDE80"
     title: CI/CD Native
     details: First-class support for SARIF (GitHub Code Scanning), JUnit XML, and JSON output. Ship accessible PDFs with every build.
@@ -88,7 +88,7 @@ features:
       <div class="label">PDFs / second</div>
     </div>
     <div class="benchmark-stat">
-      <div class="number">21</div>
+      <div class="number">25</div>
       <div class="label">check modules</div>
     </div>
     <div class="benchmark-stat">

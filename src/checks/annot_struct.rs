@@ -33,6 +33,13 @@ impl Check for AnnotStructChecks {
         28
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &[
+            "28-002", "28-004", "28-005", "28-006", "28-007", "28-010", "28-011", "28-012",
+            "28-014", "28-015", "28-016", "28-017", "28-018",
+        ]
+    }
+
     fn description(&self) -> &'static str {
         "Annotations: structure tree association for all annotations"
     }
@@ -130,8 +137,16 @@ impl Check for AnnotStructChecks {
                 if subtype == b"PrinterMark" {
                     if objr_map.contains_key(&annot_id) {
                         results.push(annot_fail(
-                            "28-007", *page_num,
+                            "28-017", *page_num,
                             &format!("PrinterMark annotation (obj {}.{}) has OBJR in structure tree — must be artifact only", annot_id.0, annot_id.1),
+                            "/PrinterMark",
+                        ));
+                    }
+                    // 28-018: the appearance stream must be marked as an artifact
+                    if let Some(unmarked) = printer_mark_unmarked_content(lopdf_doc, annot_dict) {
+                        results.push(annot_fail(
+                            "28-018", *page_num,
+                            &format!("PrinterMark annotation (obj {}.{}) appearance stream has {unmarked} content operation(s) outside /Artifact marked content", annot_id.0, annot_id.1),
                             "/PrinterMark",
                         ));
                     }
@@ -154,6 +169,7 @@ impl Check for AnnotStructChecks {
                 }
 
                 total_annots += 1;
+                let results_before = results.len();
 
                 // 28-002: Check if this annotation is referenced in the structure tree
                 if let Some(info) = objr_map.get(&annot_id) {
@@ -181,11 +197,32 @@ impl Check for AnnotStructChecks {
                 } else {
                     unlinked_annots += 1;
                     let type_name = String::from_utf8_lossy(subtype);
+                    let (rule, expected) = match subtype {
+                        b"Widget" => ("28-010", "Form"),
+                        b"Link" => ("28-011", "Link"),
+                        _ => ("28-002", "Annot"),
+                    };
                     results.push(annot_fail(
-                        "28-002",
+                        rule,
                         *page_num,
                         &format!(
-                            "/{type_name} annotation (obj {}.{}) has no OBJR in the structure tree",
+                            "/{type_name} annotation (obj {}.{}) has no OBJR in the structure tree — must be nested in a /{expected} structure element",
+                            annot_id.0, annot_id.1
+                        ),
+                        &format!("/{type_name}"),
+                    ));
+                }
+
+                // 28-006: an annotation whose subtype is not defined in ISO 32000 must
+                // still satisfy 7.18.1 (28-002 / 28-004). Report it under its own index
+                // so the failure is attributable to the non-standard subtype.
+                if !is_iso32000_annotation_subtype(subtype) && results.len() > results_before {
+                    let type_name = String::from_utf8_lossy(subtype);
+                    results.push(annot_fail(
+                        "28-006",
+                        *page_num,
+                        &format!(
+                            "/{type_name} annotation (obj {}.{}) uses a subtype not defined in ISO 32000 and does not meet 7.18.1",
                             annot_id.0, annot_id.1
                         ),
                         &format!("/{type_name}"),
@@ -314,10 +351,10 @@ fn check_objr_parent_type(
 ) {
     let resolved_type = resolve_role(&info.parent_type, role_map);
 
-    let expected = match subtype {
-        b"Link" => b"Link" as &[u8],
-        b"Widget" => b"Form",
-        _ => b"Annot",
+    let (expected, rule) = match subtype {
+        b"Link" => (b"Link" as &[u8], "28-011"),
+        b"Widget" => (b"Form" as &[u8], "28-010"),
+        _ => (b"Annot" as &[u8], "28-002"),
     };
 
     if resolved_type != expected {
@@ -325,7 +362,7 @@ fn check_objr_parent_type(
         let subtype_str = String::from_utf8_lossy(subtype);
         let expected_str = String::from_utf8_lossy(expected);
         results.push(annot_fail(
-            "28-003", page_num,
+            rule, page_num,
             &format!(
                 "/{subtype_str} annotation is under /{parent_str} struct elem — should be under /{expected_str}"
             ),
@@ -359,15 +396,26 @@ fn check_annot_accessible_text(
             let is_hidden = annot_dict
                 .get(b"F")
                 .and_then(lopdf::Object::as_i64)
-                .ok()
-                .is_some_and(|f| f & 0x23 != 0)
+                .is_ok_and(|f| f & 0x23 != 0)
                 || has_inherited_flag_hidden(doc, annot_dict, 10);
             let has_appearance = annot_dict.get(b"AP").is_ok();
             if !is_hidden && has_appearance && !is_zero_size_rect(annot_dict) {
-                let has_tu = has_inherited_key(doc, annot_dict, b"TU", 10);
+                // /TU is a *field* dictionary entry (ISO 32000-1 Table 220). When the
+                // widget is a pure annotation kid (no /T, /FT or /Kids of its own) the
+                // field is its /Parent, so a /TU on the widget itself does not count.
+                let is_pure_widget = annot_dict.get(b"Parent").is_ok()
+                    && annot_dict.get(b"T").is_err()
+                    && annot_dict.get(b"FT").is_err()
+                    && annot_dict.get(b"Kids").is_err();
+                let field_dict = if is_pure_widget {
+                    resolve_dict(doc, annot_dict.get(b"Parent").ok()).unwrap_or(annot_dict)
+                } else {
+                    annot_dict
+                };
+                let has_tu = has_inherited_key(doc, field_dict, b"TU", 10);
                 if !has_tu && !info.parent_has_alt {
                     results.push(annot_fail(
-                        "28-009",
+                        "28-005",
                         page_num,
                         "Form field has no /TU (tooltip) and Form struct elem has no /Alt",
                         "/Widget",
@@ -384,7 +432,7 @@ fn check_annot_accessible_text(
                 .is_some_and(|s| !s.is_empty());
             if !has_contents {
                 results.push(annot_fail(
-                    "28-006",
+                    "28-012",
                     page_num,
                     "Link annotation missing non-empty /Contents for accessible link text",
                     "/Link",
@@ -417,7 +465,7 @@ fn check_annot_accessible_text(
                 {
                     let type_str = String::from_utf8_lossy(subtype);
                     results.push(annot_fail(
-                            "28-006", page_num,
+                            "28-004", page_num,
                             &format!(
                                 "/{type_str} annotation has no /Contents and Annot struct elem has no /Alt"
                             ),
@@ -426,6 +474,66 @@ fn check_annot_accessible_text(
                 }
             }
         }
+    }
+}
+
+/// 28-018: count painting operations in a `PrinterMark`'s normal appearance
+/// stream that are not enclosed in `/Artifact` marked content. Returns `None`
+/// when there is no appearance stream to inspect.
+fn printer_mark_unmarked_content(doc: &lopdf::Document, annot: &lopdf::Dictionary) -> Option<u32> {
+    let ap = annot
+        .get(b"AP")
+        .ok()
+        .and_then(|o| resolve_obj(doc, o))?
+        .as_dict()
+        .ok()?;
+    let normal = ap.get(b"N").ok().and_then(|o| resolve_obj(doc, o))?;
+    let stream = if let Ok(s) = normal.as_stream() {
+        s
+    } else {
+        // Appearance sub-dictionary: take the first state
+        normal
+            .as_dict()
+            .ok()?
+            .iter()
+            .find_map(|(_, v)| resolve_obj(doc, v).and_then(|o| o.as_stream().ok()))?
+    };
+    let data = stream.decompressed_content().ok()?;
+    let content = lopdf::content::Content::decode(&data).ok()?;
+    let mut artifact_depth = 0u32;
+    let mut mc_depth = 0u32;
+    let mut unmarked = 0u32;
+    for op in &content.operations {
+        match op.operator.as_str() {
+            "BMC" | "BDC" => {
+                mc_depth += 1;
+                if op.operands.first().and_then(|o| o.as_name().ok()) == Some(b"Artifact")
+                    || artifact_depth > 0
+                {
+                    artifact_depth += 1;
+                }
+            }
+            "EMC" => {
+                mc_depth = mc_depth.saturating_sub(1);
+                artifact_depth = artifact_depth.saturating_sub(1);
+            }
+            "Tj" | "TJ" | "'" | "\"" | "Do" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "S"
+            | "s" | "sh" | "BI" | "EI"
+                if artifact_depth == 0 =>
+            {
+                unmarked += 1;
+            }
+            _ => {}
+        }
+    }
+    let _ = mc_depth;
+    (unmarked > 0).then_some(unmarked)
+}
+
+fn resolve_obj<'a>(doc: &'a lopdf::Document, obj: &'a lopdf::Object) -> Option<&'a lopdf::Object> {
+    match obj {
+        lopdf::Object::Reference(id) => doc.get_object(*id).ok(),
+        other => Some(other),
     }
 }
 
@@ -484,7 +592,7 @@ fn check_screen_annotation(
     // Check /CT (content type) on media clip
     if clip_dict.get(b"CT").is_err() {
         results.push(annot_fail(
-            "28-005",
+            "28-014",
             page_num,
             "Screen annotation media clip missing /CT (content type)",
             "/Screen",
@@ -492,7 +600,7 @@ fn check_screen_annotation(
     }
 
     // Check /Alt on media clip — must be an array with non-empty text entries
-    match clip_dict.get(b"Alt") {
+    match clip_dict.get_deref(b"Alt", doc) {
         Ok(alt_obj) => {
             if let Ok(arr) = alt_obj.as_array() {
                 // Alt array format: [lang1, text1, lang2, text2, ...]
@@ -501,20 +609,27 @@ fn check_screen_annotation(
                     .iter()
                     .enumerate()
                     .filter(|(i, _)| i % 2 == 1)
-                    .any(|(_, item)| item.as_str().ok().is_some_and(|s| !s.is_empty()));
+                    .any(|(_, item)| item.as_str().is_ok_and(|s| !s.is_empty()));
                 if !has_nonempty_text {
                     results.push(annot_fail(
-                        "28-006",
+                        "28-015",
                         page_num,
                         "Screen annotation media clip /Alt has no non-empty text entries",
                         "/Screen",
                     ));
                 }
+            } else {
+                results.push(annot_fail(
+                    "28-015",
+                    page_num,
+                    "Screen annotation media clip /Alt is not an array of language/text pairs",
+                    "/Screen",
+                ));
             }
         }
         Err(_) => {
             results.push(annot_fail(
-                "28-006",
+                "28-015",
                 page_num,
                 "Screen annotation media clip missing /Alt array",
                 "/Screen",
@@ -553,7 +668,7 @@ fn check_file_attachment(
 
     if !has_filename {
         results.push(annot_fail(
-            "28-008",
+            "28-016",
             page_num,
             "FileAttachment FileSpec missing or has empty /F entry",
             "/FileAttachment",
@@ -569,11 +684,59 @@ fn check_file_attachment(
 
     if !has_unicode_filename {
         results.push(annot_fail(
-            "28-008",
+            "28-016",
             page_num,
             "FileAttachment FileSpec missing or has empty /UF entry",
             "/FileAttachment",
         ));
+    }
+}
+
+/// Annotation subtypes defined in ISO 32000-1 Table 169 (plus the ISO 32000-2
+/// additions `RichMedia` and Projection).
+fn is_iso32000_annotation_subtype(subtype: &[u8]) -> bool {
+    matches!(
+        subtype,
+        b"Text"
+            | b"Link"
+            | b"FreeText"
+            | b"Line"
+            | b"Square"
+            | b"Circle"
+            | b"Polygon"
+            | b"PolyLine"
+            | b"Highlight"
+            | b"Underline"
+            | b"Squiggly"
+            | b"StrikeOut"
+            | b"Stamp"
+            | b"Caret"
+            | b"Ink"
+            | b"Popup"
+            | b"FileAttachment"
+            | b"Sound"
+            | b"Movie"
+            | b"Widget"
+            | b"Screen"
+            | b"PrinterMark"
+            | b"TrapNet"
+            | b"Watermark"
+            | b"3D"
+            | b"Redact"
+            | b"RichMedia"
+            | b"Projection"
+    )
+}
+
+/// Resolve an object (direct dictionary or reference) to a dictionary.
+fn resolve_dict<'a>(
+    doc: &'a lopdf::Document,
+    obj: Option<&'a lopdf::Object>,
+) -> Option<&'a lopdf::Dictionary> {
+    match obj? {
+        lopdf::Object::Reference(ref_id) => doc.get_object(*ref_id).ok()?.as_dict().ok(),
+        lopdf::Object::Dictionary(d) => Some(d),
+        _ => None,
     }
 }
 
@@ -587,7 +750,7 @@ fn has_inherited_key(
 ) -> bool {
     // Check if key exists and has a non-empty value
     if let Ok(obj) = dict.get(key) {
-        let is_empty = obj.as_str().ok().is_some_and(<[u8]>::is_empty);
+        let is_empty = obj.as_str().is_ok_and(<[u8]>::is_empty);
         if !is_empty {
             return true;
         }

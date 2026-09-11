@@ -4,8 +4,11 @@ pub mod baseline;
 pub mod content_stream;
 pub mod dict_entries;
 pub mod embedded_files;
+pub mod file_syntax;
+pub mod font_program;
 pub mod fonts;
 pub mod headings;
+pub mod human_review;
 pub mod images;
 pub mod language;
 pub mod lists;
@@ -19,6 +22,7 @@ pub mod structure;
 pub mod tables;
 pub mod version;
 pub mod xfa;
+pub mod xobjects;
 
 use crate::document::HornDocument;
 use crate::model::{CheckResult, Standard};
@@ -35,6 +39,12 @@ pub trait Check: Send + Sync {
     /// Human-readable description of what this check validates.
     fn description(&self) -> &'static str;
 
+    /// The rule ids this check can emit — Matterhorn failure-condition indices
+    /// (`"28-010"`) or Horn extension ids (`"15-x04"`). Used by `horn coverage`.
+    fn rules(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// Whether this check is fully machine-checkable.
     fn is_machine_checkable(&self) -> bool {
         true
@@ -50,6 +60,12 @@ pub trait Check: Send + Sync {
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>>;
 }
 
+/// Matterhorn checkpoint number of a rule id (`"28-010"` → 28, `"15-x04"` → 15,
+/// `"baseline"` → 0).
+pub fn checkpoint_of(rule_id: &str) -> u8 {
+    rule_id.get(..2).and_then(|cp| cp.parse().ok()).unwrap_or(0)
+}
+
 /// Registry of all available checks.
 pub struct CheckRegistry {
     checks: Vec<Box<dyn Check>>,
@@ -59,12 +75,14 @@ impl CheckRegistry {
     /// Create a registry with all built-in checks.
     pub fn new() -> Self {
         let checks: Vec<Box<dyn Check>> = vec![
+            Box::new(file_syntax::FileSyntaxChecks),
             Box::new(baseline::BaselineCheck),
             Box::new(metadata::MetadataChecks),
             Box::new(version::VersionChecks),
             Box::new(structure::StructureChecks),
             Box::new(dict_entries::DictEntryChecks),
             Box::new(fonts::FontChecks),
+            Box::new(font_program::FontProgramChecks),
             Box::new(headings::HeadingChecks),
             Box::new(tables::TableChecks),
             Box::new(images::ImageChecks),
@@ -80,6 +98,8 @@ impl CheckRegistry {
             Box::new(content_stream::ContentStreamChecks),
             Box::new(nesting::NestingChecks),
             Box::new(annot_struct::AnnotStructChecks),
+            Box::new(xobjects::XObjectChecks),
+            Box::new(human_review::HumanReviewChecks),
         ];
         Self { checks }
     }
@@ -114,6 +134,20 @@ impl CheckRegistry {
     /// Iterate over all registered checks.
     pub fn checks(&self) -> &[Box<dyn Check>] {
         &self.checks
+    }
+}
+
+impl CheckRegistry {
+    /// All rule ids emitted by the registered checks, sorted and deduplicated.
+    pub fn implemented_rules(&self) -> Vec<&'static str> {
+        let mut ids: Vec<&'static str> = self
+            .checks
+            .iter()
+            .flat_map(|c| c.rules().iter().copied())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
     }
 }
 

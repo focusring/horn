@@ -14,7 +14,9 @@ use std::path::{Path, PathBuf};
 pub struct HornDocument {
     oxide: pdf_oxide::PdfDocument,
     lopdf: OnceCell<lopdf::Document>,
-    /// Raw PDF bytes kept for lazy lopdf init and for checks that need raw access.
+    /// Content-stream usage (fonts, Form `XObjects`), computed on first request.
+    content_usage: OnceCell<crate::content::ContentUsage>,
+    /// Raw PDF bytes, kept for lazy lopdf init and for byte-level checks.
     pdf_bytes: Option<Vec<u8>>,
     path: PathBuf,
     standard: Standard,
@@ -22,14 +24,18 @@ pub struct HornDocument {
 
 impl HornDocument {
     /// Open a PDF file with both parsers (eagerly).
+    ///
+    /// The file is read once; the raw bytes are retained for byte-level checks
+    /// (see `raw_bytes`).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open(path: &Path) -> Result<Self> {
-        let path_str = path.to_str().context("Path contains invalid UTF-8")?;
+        let bytes =
+            std::fs::read(path).with_context(|| format!("failed to read: {}", path.display()))?;
 
-        let oxide = pdf_oxide::PdfDocument::open(path_str)
+        let oxide = pdf_oxide::PdfDocument::from_bytes(bytes.clone())
             .map_err(|e| anyhow::anyhow!("pdf_oxide failed to open: {e}"))?;
 
-        let lopdf = lopdf::Document::load(path)
+        let lopdf = lopdf::Document::load_mem(&bytes)
             .with_context(|| format!("lopdf failed to open: {}", path.display()))?;
 
         let standard = detect_standard_from_xmp(&lopdf);
@@ -40,7 +46,8 @@ impl HornDocument {
         Ok(Self {
             oxide,
             lopdf: cell,
-            pdf_bytes: None,
+            content_usage: OnceCell::new(),
+            pdf_bytes: Some(bytes),
             path: path.to_path_buf(),
             standard,
         })
@@ -62,6 +69,7 @@ impl HornDocument {
         Ok(Self {
             oxide,
             lopdf: OnceCell::new(),
+            content_usage: OnceCell::new(),
             pdf_bytes: Some(bytes),
             path: PathBuf::from(name),
             standard,
@@ -78,7 +86,7 @@ impl HornDocument {
         &self.path
     }
 
-    /// Access the raw PDF bytes, if loaded via `from_bytes`.
+    /// Access the raw PDF bytes of the file.
     pub fn raw_bytes(&self) -> Option<&[u8]> {
         self.pdf_bytes.as_deref()
     }
@@ -100,6 +108,19 @@ impl HornDocument {
                 panic!("lopdf not initialized and no bytes available")
             }
         })
+    }
+
+    /// Content-stream usage over all pages, Form `XObjects` and annotation
+    /// appearances: character codes per font, Form `XObject` paint counts.
+    /// Computed once per document.
+    pub fn content_usage(&self) -> &crate::content::ContentUsage {
+        self.content_usage
+            .get_or_init(|| crate::content::collect_content_usage(self.lopdf()))
+    }
+
+    /// Character codes used with every font (see `content_usage`).
+    pub fn font_usage(&self) -> &crate::content::FontUsageMap {
+        &self.content_usage().fonts
     }
 
     /// Get the document catalog dictionary via lopdf.

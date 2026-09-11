@@ -20,6 +20,10 @@ impl Check for NoteChecks {
         19
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["19-003", "19-004"]
+    }
+
     fn description(&self) -> &'static str {
         "Notes: Note elements must have unique IDs"
     }
@@ -63,14 +67,14 @@ impl Check for NoteChecks {
                         if id_bytes_ref.is_empty() {
                             missing_id += 1;
                             results
-                                .push(fail("19-001", &format!("Note {note_count}: /ID is empty")));
+                                .push(fail("19-003", &format!("Note {note_count}: /ID is empty")));
                         } else {
                             let id_vec = id_bytes_ref.to_vec();
                             let id_display = String::from_utf8_lossy(&id_vec).into_owned();
                             if !seen_ids.insert(id_vec) {
                                 duplicate_ids += 1;
                                 results.push(fail(
-                                "19-002",
+                                "19-004",
                                 &format!(
                                     "Note {note_count}: duplicate /ID \"{id_display}\" — Note IDs must be unique"
                                 ),
@@ -81,14 +85,14 @@ impl Check for NoteChecks {
                         // ID exists but isn't a string — treat as missing
                         missing_id += 1;
                         results.push(fail(
-                            "19-001",
+                            "19-003",
                             &format!("Note {note_count}: /ID is not a valid string"),
                         ));
                     }
                 } else {
                     missing_id += 1;
                     results.push(fail(
-                        "19-001",
+                        "19-003",
                         &format!("Note {note_count}: missing /ID attribute"),
                     ));
                 }
@@ -98,7 +102,7 @@ impl Check for NoteChecks {
 
         if note_count > 0 && missing_id == 0 && duplicate_ids == 0 {
             results.push(pass(
-                "19-001",
+                "19-003",
                 &format!("All {note_count} Note element(s) have unique /ID attributes"),
             ));
         }

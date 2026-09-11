@@ -65,5 +65,5 @@ jobs:
 - uses: focusring/horn@v1
   with:
     path: ./output/
-    version: '0.2.0'
+    version: '0.3.0'
 ```

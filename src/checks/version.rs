@@ -18,7 +18,11 @@ impl Check for VersionChecks {
     }
 
     fn checkpoint(&self) -> u8 {
-        5
+        6
+    }
+
+    fn rules(&self) -> &'static [&'static str] {
+        &["06-001", "06-002"]
     }
 
     fn description(&self) -> &'static str {
@@ -48,7 +52,7 @@ fn check_metadata_stream_exists(
 ) -> Option<Vec<u8>> {
     let Ok(catalog) = doc.raw_catalog() else {
         results.push(fail(
-            "05-001",
+            "06-001",
             "Cannot read document catalog to check /Metadata",
         ));
         return None;
@@ -57,32 +61,32 @@ fn check_metadata_stream_exists(
     let lopdf_doc = doc.lopdf();
 
     let Ok(meta_obj_raw) = catalog.get(b"Metadata") else {
-        results.push(fail("05-001", "Document catalog missing /Metadata stream"));
+        results.push(fail("06-001", "Document catalog missing /Metadata stream"));
         return None;
     };
     let Ok(meta_ref) = meta_obj_raw.as_reference() else {
         results.push(fail(
-            "05-001",
+            "06-001",
             "/Metadata entry is not an indirect reference",
         ));
         return None;
     };
 
     let Ok(meta_obj) = lopdf_doc.get_object(meta_ref) else {
-        results.push(fail("05-001", "Cannot resolve /Metadata reference"));
+        results.push(fail("06-001", "Cannot resolve /Metadata reference"));
         return None;
     };
 
     let Ok(stream) = meta_obj.as_stream() else {
-        results.push(fail("05-001", "/Metadata object is not a stream"));
+        results.push(fail("06-001", "/Metadata object is not a stream"));
         return None;
     };
 
     if let Ok(content) = stream.get_plain_content() {
-        results.push(pass("05-001", "/Metadata stream exists in catalog"));
+        results.push(pass("06-001", "/Metadata stream exists in catalog"));
         Some(content)
     } else {
-        results.push(fail("05-001", "Cannot decompress /Metadata stream"));
+        results.push(fail("06-001", "Cannot decompress /Metadata stream"));
         None
     }
 }
@@ -104,21 +108,21 @@ fn check_pdfuaid_part_value(
     match part_value {
         Some(value) => {
             // 05-003: pdfuaid:part exists
-            results.push(pass("05-003", "XMP pdfuaid:part identifier is present"));
+            results.push(pass("06-002", "XMP pdfuaid:part identifier is present"));
 
             // 05-002: value must match the detected standard
             match value.parse::<i32>() {
                 Ok(1) => {
-                    results.push(pass("05-002", "XMP pdfuaid:part value is 1 (PDF/UA-1)"));
+                    results.push(pass("06-002", "XMP pdfuaid:part value is 1 (PDF/UA-1)"));
                 }
                 Ok(2) => {
                     // PDF/UA-2 requires PDF 2.0 (ISO 32000-2)
                     let pdf_version = &doc.lopdf().version;
                     if pdf_version.starts_with("2.") {
-                        results.push(pass("05-002", "XMP pdfuaid:part value is 2 (PDF/UA-2)"));
+                        results.push(pass("06-002", "XMP pdfuaid:part value is 2 (PDF/UA-2)"));
                     } else {
                         results.push(fail(
-                            "05-002",
+                            "06-002",
                             &format!(
                                 "PDF/UA-2 (pdfuaid:part=2) requires PDF 2.0 but document is PDF {pdf_version}"
                             ),
@@ -127,7 +131,7 @@ fn check_pdfuaid_part_value(
                 }
                 Ok(n) => {
                     results.push(fail(
-                        "05-002",
+                        "06-002",
                         &format!(
                             "XMP pdfuaid:part value is {n} — must be 1 (PDF/UA-1) or 2 (PDF/UA-2)"
                         ),
@@ -135,7 +139,7 @@ fn check_pdfuaid_part_value(
                 }
                 Err(_) => {
                     results.push(fail(
-                        "05-002",
+                        "06-002",
                         &format!("XMP pdfuaid:part value '{value}' is not a valid integer"),
                     ));
                 }
@@ -143,7 +147,7 @@ fn check_pdfuaid_part_value(
         }
         None => {
             results.push(fail(
-                "05-003",
+                "06-002",
                 "XMP metadata missing pdfuaid:part identifier",
             ));
         }
@@ -200,7 +204,7 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
     if !has_extension_schemas && !has_xmlns_decl {
         // Neither declaration method is present
         results.push(fail(
-            "05-004",
+            "06-002",
             "XMP missing both pdfaExtension:schemas and xmlns:pdfuaid namespace declaration for PDF/UA identifier",
         ));
         return;
@@ -210,7 +214,7 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
     // BUT we still need to check the extension schema for wrong prefixes if present.
     if has_xmlns_decl && !has_extension_schemas {
         results.push(pass(
-            "05-004",
+            "06-002",
             "XMP pdfuaid namespace declared via xmlns:pdfuaid with correct URI",
         ));
         return;
@@ -219,7 +223,7 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
     if has_xmlns_decl && !xmp.contains("<pdfaSchema:namespaceURI>") {
         // xmlns present and no extension schemas to check
         results.push(pass(
-            "05-004",
+            "06-002",
             "XMP pdfuaid namespace declared via xmlns:pdfuaid with correct URI",
         ));
         return;
@@ -229,7 +233,7 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
     let pdfua_ns = "http://www.aiim.org/pdfua/ns/id/";
     if !xmp.contains(pdfua_ns) {
         results.push(fail(
-            "05-004",
+            "06-002",
             "XMP extension schema missing PDF/UA namespace URI",
         ));
         return;
@@ -249,7 +253,7 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
 
     if pdfua_schema_count > 1 {
         results.push(fail(
-            "05-005",
+            "06-002",
             &format!(
                 "XMP has {pdfua_schema_count} duplicate extension schema definitions for PDF/UA namespace — must have exactly one"
             ),
@@ -292,19 +296,19 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
 
     if found_wrong_prefix {
         results.push(fail(
-            "05-004",
+            "06-002",
             &format!(
                 "XMP extension schema has wrong prefix '{wrong_prefix_value}' for PDF/UA namespace (must be 'pdfuaid')"
             ),
         ));
     } else if found_correct_prefix {
         results.push(pass(
-            "05-004",
+            "06-002",
             "XMP extension schema for pdfuaid is properly defined",
         ));
     } else if pdfua_schema_count == 0 {
         results.push(fail(
-            "05-004",
+            "06-002",
             "XMP extension schema for PDF/UA namespace not found",
         ));
     }
@@ -313,7 +317,7 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
 fn pass(rule_id: &str, description: &str) -> CheckResult {
     CheckResult {
         rule_id: rule_id.to_string(),
-        checkpoint: 5,
+        checkpoint: 6,
         description: description.to_string(),
         severity: Severity::Info,
         outcome: CheckOutcome::Pass,
@@ -323,7 +327,7 @@ fn pass(rule_id: &str, description: &str) -> CheckResult {
 fn fail(rule_id: &str, message: &str) -> CheckResult {
     CheckResult {
         rule_id: rule_id.to_string(),
-        checkpoint: 5,
+        checkpoint: 6,
         description: message.to_string(),
         severity: Severity::Error,
         outcome: CheckOutcome::Fail {

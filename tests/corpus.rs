@@ -467,7 +467,8 @@ fn coverage_baseline() {
 
     // =========================================================================
     // BASELINE ASSERTIONS — floors that future changes must meet or exceed.
-    // BASELINE — updated 2026-03-21.
+    // BASELINE — updated 2026-09-11: 100% of the veraPDF PDF/UA-1 corpus
+    // (141/141 pass files compliant, 156/156 fail files detected).
     // =========================================================================
 
     assert!(
@@ -490,6 +491,11 @@ fn coverage_baseline() {
         "Expected at least 10 checks per file, got {}",
         check_count
     );
+    assert!(
+        ua1_fail.len() >= 156,
+        "Expected at least 156 UA-1 fail files, found {}",
+        ua1_fail.len()
+    );
 
     assert!(
         ref_compliant >= 10,
@@ -504,14 +510,16 @@ fn coverage_baseline() {
         ua1_pass.len()
     );
     assert!(
-        ua1_fail_detected >= 144,
-        "UA-1 fail detection regression: {}/{} (baseline: 144/155)",
+        ua1_fail_detected == ua1_fail.len(),
+        "UA-1 fail detection regression: {}/{} (baseline: 156/156)",
         ua1_fail_detected,
         ua1_fail.len()
     );
+    // Every one of the 136 Matterhorn conditions is reported (machine results
+    // plus manual-review items), so a simple file yields well over 90 results.
     assert!(
-        check_count >= 33,
-        "Check count regression: {} (baseline: 33)",
+        check_count >= 90,
+        "Check count regression: {} (baseline: 93)",
         check_count
     );
 
@@ -527,5 +535,91 @@ fn coverage_baseline() {
         "Generated fail regression: {}/{} detected (baseline: 56/56)",
         gen_fail_detected,
         gen_fail.len()
+    );
+}
+
+// =============================================================================
+// Matterhorn Protocol coverage — every condition is covered by a check
+// =============================================================================
+
+#[test]
+fn matterhorn_conditions_fully_covered() {
+    use horn::matterhorn::{CONDITIONS, How};
+
+    let registry = horn::checks::CheckRegistry::new();
+    let implemented = registry.implemented_rules();
+
+    let missing: Vec<&str> = CONDITIONS
+        .iter()
+        .filter(|c| c.how != How::None)
+        .filter(|c| implemented.binary_search(&c.id).is_err())
+        .map(|c| c.id)
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "Matterhorn conditions without a check: {}",
+        missing.join(", ")
+    );
+
+    // Every emitted rule id is either a Matterhorn index or an extension id.
+    for id in &implemented {
+        assert!(
+            horn::matterhorn::condition(id).is_some() || horn::matterhorn::is_extension_rule(id),
+            "rule id {id} is neither a Matterhorn condition nor an extension rule"
+        );
+    }
+}
+
+#[test]
+fn every_condition_appears_in_a_report() {
+    use horn::matterhorn::{CONDITIONS, How};
+
+    let sample = fixtures().join("pdfua-reference-suite/PDFUA-Ref-2-02_Invoice.pdf");
+    let report = horn::validate_file(&sample);
+    assert!(report.is_compliant(), "reference invoice must be compliant");
+
+    // All human-judgment conditions are present as NeedsReview or NotApplicable.
+    for cond in CONDITIONS.iter().filter(|c| c.how == How::Human) {
+        assert!(
+            report.results.iter().any(|r| r.rule_id == cond.id),
+            "human condition {} missing from the report",
+            cond.id
+        );
+    }
+}
+
+#[test]
+fn result_checkpoints_match_rule_ids() {
+    let dir = fixtures().join("verapdf-corpus/PDF_UA-1");
+    let mut pdfs = all_pdfs(&dir);
+    pdfs.extend(all_pdfs(&fixtures().join("pdfua-reference-suite")));
+    pdfs.extend(all_pdfs(&fixtures().join("generated")));
+    assert!(!pdfs.is_empty());
+
+    let mut mismatches = Vec::new();
+    for pdf in &pdfs {
+        let report = horn::validate_file(pdf);
+        for r in &report.results {
+            if r.rule_id == "baseline" {
+                continue;
+            }
+            let expected = horn::checks::checkpoint_of(&r.rule_id);
+            if r.checkpoint != expected {
+                mismatches.push(format!(
+                    "{}: rule {} has checkpoint {} (expected {expected})",
+                    pdf.file_name().unwrap().to_string_lossy(),
+                    r.rule_id,
+                    r.checkpoint
+                ));
+            }
+        }
+    }
+    mismatches.sort();
+    mismatches.dedup();
+    assert!(
+        mismatches.is_empty(),
+        "checkpoint metadata inconsistent with rule ids:\n{}",
+        mismatches.join("\n")
     );
 }

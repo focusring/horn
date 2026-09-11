@@ -94,13 +94,13 @@ The `validate` function returns the same `FileReport` structure as the CLI's JSO
   "standard": "pdf-ua-1",
   "results": [
     {
-      "rule_id": "06-001",
-      "checkpoint": 6,
-      "description": "Document language not set",
+      "rule_id": "11-001",
+      "checkpoint": 11,
+      "description": "Document catalog missing /Lang entry",
       "severity": "error",
       "outcome": {
         "status": "Fail",
-        "message": "No /Lang entry in document catalog"
+        "message": "Document catalog missing /Lang entry"
       }
     }
   ],

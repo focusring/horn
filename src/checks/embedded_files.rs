@@ -19,6 +19,10 @@ impl Check for EmbeddedFileChecks {
         21
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["21-001"]
+    }
+
     fn description(&self) -> &'static str {
         "Embedded files: file specification completeness"
     }
@@ -72,7 +76,7 @@ impl Check for EmbeddedFileChecks {
             if !has_unicode_filename {
                 all_valid = false;
                 results.push(fail(
-                    "21-002",
+                    "21-001",
                     &format!(
                         "Embedded file {file_num}: file specification missing /UF (Unicode file name)"
                     ),

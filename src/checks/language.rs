@@ -6,11 +6,12 @@ use anyhow::Result;
 /// Checkpoint 11: Natural Language.
 ///
 /// PDF/UA-1 requires proper language identification at multiple levels:
-/// - 11-001: Document-level `/Lang` must be present (handled by metadata.rs)
-/// - 11-002: All `/Lang` values must be valid BCP 47 tags
-/// - 11-005: Elements with `/Alt` should have language context
-/// - 11-006: Elements with `/ActualText` should have language context
-/// - 11-007: Elements with `/E` (expansion) should have language context
+/// - 11-001: Language of page content — every `/Lang` must be a valid BCP 47 tag
+/// - 11-002: Elements with `/Alt`, `/ActualText` or `/E` need language context
+/// - 11-003: Outline entries need language context
+/// - 11-004: Annotation `/Contents` need language context
+/// - 11-005: Form field `/TU` need language context
+/// - 11-006: Document metadata (XMP dc:title) needs language context
 pub struct LanguageChecks;
 
 impl Check for LanguageChecks {
@@ -20,6 +21,10 @@ impl Check for LanguageChecks {
 
     fn checkpoint(&self) -> u8 {
         11
+    }
+
+    fn rules(&self) -> &'static [&'static str] {
+        &["11-001", "11-002", "11-003", "11-004", "11-005", "11-006"]
     }
 
     fn description(&self) -> &'static str {
@@ -45,7 +50,7 @@ impl Check for LanguageChecks {
             if !lang.is_empty() && !is_valid_bcp47(lang) {
                 let display = String::from_utf8_lossy(lang);
                 results.push(fail(
-                    "11-002",
+                    "11-001",
                     &format!("Document /Lang \"{display}\" is not a valid BCP 47 language tag"),
                 ));
             }
@@ -93,7 +98,7 @@ impl Check for LanguageChecks {
         if !invalid_langs.is_empty() {
             for lang in &invalid_langs {
                 results.push(fail(
-                    "11-002",
+                    "11-001",
                     &format!("/Lang \"{lang}\" is not a valid BCP 47 language tag"),
                 ));
             }
@@ -101,7 +106,7 @@ impl Check for LanguageChecks {
 
         if empty_langs > 0 {
             results.push(fail(
-                "11-002",
+                "11-001",
                 &format!("{empty_langs} structure element(s) have empty /Lang values"),
             ));
         }
@@ -110,14 +115,14 @@ impl Check for LanguageChecks {
             // Check if there were any langs to validate
             let has_any_lang = doc_lang.is_some();
             if has_any_lang {
-                results.push(pass("11-002", "All /Lang values are valid BCP 47 tags"));
+                results.push(pass("11-001", "All /Lang values are valid BCP 47 tags"));
             }
         }
 
         // Emit results for 11-005, 11-006, 11-007
         if missing_lang_on_alt > 0 {
             results.push(fail(
-                "11-005",
+                "11-002",
                 &format!(
                     "{missing_lang_on_alt} element(s) with /Alt text have no language context"
                 ),
@@ -126,7 +131,7 @@ impl Check for LanguageChecks {
 
         if missing_lang_on_actual > 0 {
             results.push(fail(
-                "11-006",
+                "11-002",
                 &format!(
                     "{missing_lang_on_actual} element(s) with /ActualText have no language context"
                 ),
@@ -135,7 +140,7 @@ impl Check for LanguageChecks {
 
         if missing_lang_on_expansion > 0 {
             results.push(fail(
-                "11-007",
+                "11-002",
                 &format!(
                     "{missing_lang_on_expansion} element(s) with /E (expansion text) have no language context"
                 ),
@@ -334,7 +339,7 @@ fn walk_struct_tree_with_lang(
     }
 }
 
-/// 02-001: Outline entries (bookmarks) with /Title text must have language context.
+/// 11-003: Outline entries (bookmarks) with /Title text must have language context.
 ///
 /// When there's no catalog /Lang, outline text strings have no language specification,
 /// making them inaccessible to assistive technologies that need to know the language
@@ -359,7 +364,7 @@ fn check_outline_language(
     let has_titles = has_outline_titles(doc, outlines_dict, 0);
     if has_titles {
         results.push(fail(
-            "02-001",
+            "11-003",
             "Outline entries have /Title text but no language context (catalog /Lang is missing)",
         ));
     }
@@ -387,10 +392,7 @@ fn has_outline_titles(doc: &lopdf::Document, node: &lopdf::Dictionary, depth: us
 
     // Check siblings via /Next chain
     let mut current = item;
-    loop {
-        let Ok(next_obj) = current.get(b"Next") else {
-            break;
-        };
+    while let Ok(next_obj) = current.get(b"Next") {
         let next_ref = next_obj.as_reference().ok();
         let next = next_ref
             .and_then(|r| doc.get_object(r).ok())
@@ -407,7 +409,7 @@ fn has_outline_titles(doc: &lopdf::Document, node: &lopdf::Dictionary, depth: us
     false
 }
 
-/// 02-002: Annotation text strings (/Contents, /TU) need language context.
+/// 11-004 / 11-005: Annotation text strings (/Contents, /TU) need language context.
 ///
 /// When there's no catalog /Lang, annotation text strings need language from
 /// their struct element (via `/StructParent` -> `ParentTree` -> struct elem with `/Lang`).
@@ -485,7 +487,7 @@ fn check_annotation_text_language(doc: &lopdf::Document, results: &mut Vec<Check
 
     if contents_without_lang > 0 {
         results.push(fail(
-            "02-002",
+            "11-004",
             &format!(
                 "{contents_without_lang} annotation(s) have /Contents text but no language context (catalog /Lang is missing)"
             ),
@@ -493,7 +495,7 @@ fn check_annotation_text_language(doc: &lopdf::Document, results: &mut Vec<Check
     }
     if tu_without_lang > 0 {
         results.push(fail(
-            "02-003",
+            "11-005",
             &format!(
                 "{tu_without_lang} form field(s) have /TU text but no language context (catalog /Lang is missing)"
             ),
@@ -631,7 +633,7 @@ fn collect_struct_parent_langs(doc: &lopdf::Document) -> std::collections::HashS
     result
 }
 
-/// 02-004: XMP dc:title must have a real language when no catalog /Lang.
+/// 11-006: XMP dc:title must have a real language when no catalog /Lang.
 ///
 /// If dc:title only has `xml:lang="x-default"` and no catalog /Lang provides
 /// language context, the title has no usable language specification.
@@ -684,7 +686,7 @@ fn check_dc_title_language(
             }
             if !has_real_lang {
                 results.push(fail(
-                    "02-004",
+                    "11-006",
                     "XMP dc:title has no language specification (only x-default) and catalog /Lang is missing",
                 ));
             }

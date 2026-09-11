@@ -18,6 +18,10 @@ impl Check for MetadataChecks {
         6
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["06-002", "06-003", "07-001", "07-002", "11-001"]
+    }
+
     fn description(&self) -> &'static str {
         "Metadata: XMP, title, language, PDF/UA identifier"
     }
@@ -43,8 +47,8 @@ impl Check for MetadataChecks {
 fn check_document_language(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     let Ok(catalog) = doc.raw_catalog() else {
         results.push(fail(
-            "06-001",
-            6,
+            "11-001",
+            11,
             "Document language not set: cannot read catalog",
         ));
         return;
@@ -57,12 +61,12 @@ fn check_document_language(doc: &mut HornDocument, results: &mut Vec<CheckResult
             if let Ok(lang) = lang_bytes {
                 let lang_str = String::from_utf8_lossy(lang);
                 if lang_str.is_empty() {
-                    results.push(fail("06-001", 6, "Document language is empty"));
+                    results.push(fail("11-001", 11, "Document language is empty"));
                 } else {
-                    results.push(pass("06-001", 6, "Document language is set"));
+                    results.push(pass("11-001", 11, "Document language is set"));
                 }
             } else {
-                results.push(fail("06-001", 6, "Document /Lang entry is not a string"));
+                results.push(fail("11-001", 11, "Document /Lang entry is not a string"));
             }
         }
         Err(_) => {
@@ -71,8 +75,8 @@ fn check_document_language(doc: &mut HornDocument, results: &mut Vec<CheckResult
             // accepts struct-level /Lang as valid (many pass files use it).
             if has_struct_level_lang(catalog, lopdf_doc) {
                 results.push(CheckResult {
-                    rule_id: "06-001".to_string(),
-                    checkpoint: 6,
+                    rule_id: "11-001".to_string(),
+                    checkpoint: 11,
                     description: "Document catalog missing /Lang but structure elements provide language identification".to_string(),
                     severity: Severity::Warning,
                     outcome: CheckOutcome::NeedsReview {
@@ -80,7 +84,7 @@ fn check_document_language(doc: &mut HornDocument, results: &mut Vec<CheckResult
                     },
                 });
             } else {
-                results.push(fail("06-001", 6, "Document catalog missing /Lang entry"));
+                results.push(fail("11-001", 11, "Document catalog missing /Lang entry"));
             }
         }
     }
@@ -165,38 +169,38 @@ fn check_title_display(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
                     Ok(val) => {
                         if let Ok(display) = val.as_bool() {
                             if display {
-                                results.push(pass("06-003", 6, "DisplayDocTitle is true"));
+                                results.push(pass("07-001", 7, "DisplayDocTitle is true"));
                             } else {
                                 results.push(fail(
-                                    "06-003",
-                                    6,
+                                    "07-002",
+                                    7,
                                     "DisplayDocTitle is false — title bar should show document title",
                                 ));
                             }
                         } else {
                             results.push(fail(
-                                "06-003",
-                                6,
+                                "07-001",
+                                7,
                                 "DisplayDocTitle is not a boolean value",
                             ));
                         }
                     }
                     Err(_) => {
                         results.push(fail(
-                            "06-003",
-                            6,
+                            "07-001",
+                            7,
                             "ViewerPreferences missing DisplayDocTitle entry",
                         ));
                     }
                 }
             } else {
-                results.push(fail("06-003", 6, "ViewerPreferences is not a dictionary"));
+                results.push(fail("07-001", 7, "ViewerPreferences is not a dictionary"));
             }
         }
         Err(_) => {
             results.push(fail(
-                "06-003",
-                6,
+                "07-001",
+                7,
                 "Document catalog missing /ViewerPreferences",
             ));
         }
@@ -278,9 +282,9 @@ fn check_xmp_metadata(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
 
     // Check for dc:title
     if xmp.contains("dc:title") {
-        results.push(pass("06-004", 6, "XMP contains dc:title"));
+        results.push(pass("06-003", 6, "XMP contains dc:title"));
     } else {
-        results.push(fail("06-004", 6, "XMP metadata missing dc:title"));
+        results.push(fail("06-003", 6, "XMP metadata missing dc:title"));
     }
 }
 

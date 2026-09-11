@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use horn::matterhorn::{CONDITIONS, How};
 use horn::model::{Severity, ValidationReport};
-use horn::output::{self, OutputFormat};
+use horn::output::{self, OutputFormat, OutputOptions};
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -40,10 +41,21 @@ enum Commands {
         /// Minimum severity to cause a non-zero exit code
         #[arg(long, value_enum, default_value = "error")]
         fail_on: FailOn,
+
+        /// Text output: also list the Matterhorn conditions that need manual review
+        #[arg(long)]
+        review: bool,
     },
 
     /// List all available checks
     ListChecks,
+
+    /// Show Matterhorn Protocol coverage: every failure condition and how Horn covers it
+    Coverage {
+        /// Output as JSON instead of a table
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Generate shell completions
     Completions {
@@ -98,6 +110,7 @@ fn run(cli: Cli) -> Result<bool> {
             output: output_path,
             recurse,
             fail_on,
+            review,
         } => {
             let pdf_paths = collect_pdf_paths(&files, recurse)?;
 
@@ -108,17 +121,25 @@ fn run(cli: Cli) -> Result<bool> {
             let show_progress = output_path.is_some() || !io::stderr().is_terminal();
             let report = horn::validate_files_parallel(&pdf_paths, show_progress);
 
-            write_output(&report, format, output_path.as_deref())?;
+            let options = OutputOptions {
+                show_review: review,
+            };
+            write_output(&report, format, options, output_path.as_deref())?;
             Ok(report.is_compliant_at(fail_on.min_severity()))
+        }
+        Commands::Coverage { json } => {
+            print_coverage(json)?;
+            Ok(true)
         }
         Commands::ListChecks => {
             let registry = horn::checks::CheckRegistry::new();
             for check in registry.checks() {
                 println!(
-                    "{:<20} [checkpoint {:>2}]  {}",
+                    "{:<20} [checkpoint {:>2}]  {}  ({} rules)",
                     check.id(),
                     check.checkpoint(),
-                    check.description()
+                    check.description(),
+                    check.rules().len()
                 );
             }
             Ok(true)
@@ -178,16 +199,109 @@ fn collect_pdf_paths(inputs: &[PathBuf], recurse: bool) -> Result<Vec<PathBuf>> 
 fn write_output(
     report: &ValidationReport,
     format: OutputFormat,
+    options: OutputOptions,
     output_path: Option<&std::path::Path>,
 ) -> Result<()> {
     if let Some(path) = output_path {
         let mut file = std::fs::File::create(path)?;
-        output::write_report(report, format, &mut file)?;
+        output::write_report_with(report, format, options, &mut file)?;
     } else {
         let stdout = io::stdout();
         let mut handle = stdout.lock();
-        output::write_report(report, format, &mut handle)?;
+        output::write_report_with(report, format, options, &mut handle)?;
         handle.flush()?;
     }
+    Ok(())
+}
+
+/// Print the Matterhorn Protocol coverage table.
+fn print_coverage(json: bool) -> Result<()> {
+    let registry = horn::checks::CheckRegistry::new();
+    let implemented = registry.implemented_rules();
+    let covered = |id: &str| implemented.binary_search(&id).is_ok();
+
+    let mut machine_total = 0usize;
+    let mut machine_covered = 0usize;
+    let mut human_total = 0usize;
+    let mut human_covered = 0usize;
+    let mut rows = Vec::new();
+    for c in &CONDITIONS {
+        let status = match c.how {
+            How::Machine => {
+                machine_total += 1;
+                if covered(c.id) {
+                    machine_covered += 1;
+                    "machine"
+                } else {
+                    "missing"
+                }
+            }
+            How::Human => {
+                human_total += 1;
+                if covered(c.id) {
+                    human_covered += 1;
+                    "manual review"
+                } else {
+                    "missing"
+                }
+            }
+            How::None => "no test defined",
+        };
+        rows.push((c, status));
+    }
+    let extensions: Vec<&str> = implemented
+        .iter()
+        .copied()
+        .filter(|id| horn::matterhorn::is_extension_rule(id))
+        .collect();
+
+    if json {
+        let conditions: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|(c, status)| {
+                serde_json::json!({
+                    "id": c.id,
+                    "checkpoint": c.checkpoint,
+                    "checkpoint_name": c.checkpoint_name,
+                    "section": c.section,
+                    "how": c.how,
+                    "status": status,
+                    "description": c.description,
+                })
+            })
+            .collect();
+        let out = serde_json::json!({
+            "protocol": "Matterhorn Protocol 1.1",
+            "machine_checkable": { "total": machine_total, "covered": machine_covered },
+            "human_judgment": { "total": human_total, "covered": human_covered },
+            "extension_rules": extensions,
+            "conditions": conditions,
+        });
+        println!("{}", serde_json::to_string_pretty(&out)?);
+        return Ok(());
+    }
+
+    println!(
+        "Matterhorn Protocol 1.1 coverage — horn {}\n",
+        env!("CARGO_PKG_VERSION")
+    );
+    let mut current_cp = 0u8;
+    for (c, status) in &rows {
+        if c.checkpoint != current_cp {
+            current_cp = c.checkpoint;
+            println!("Checkpoint {:02}: {}", c.checkpoint, c.checkpoint_name);
+        }
+        let how = match c.how {
+            How::Machine => "M",
+            How::Human => "H",
+            How::None => "-",
+        };
+        println!("  {}  {how}  {:<14} {}", c.id, status, c.description);
+    }
+    println!(
+        "\nMachine-checkable: {machine_covered}/{machine_total} implemented; human-judgment: {human_covered}/{human_total} reported for manual review; {} Horn extension rules ({}).",
+        extensions.len(),
+        extensions.join(", ")
+    );
     Ok(())
 }

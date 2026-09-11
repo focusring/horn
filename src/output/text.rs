@@ -1,8 +1,13 @@
 use crate::model::{CheckOutcome, Severity, Standard, ValidationReport};
+use crate::output::OutputOptions;
 use anyhow::Result;
 use std::io::Write;
 
-pub fn write_text(report: &ValidationReport, w: &mut dyn Write) -> Result<()> {
+pub fn write_text(
+    report: &ValidationReport,
+    options: OutputOptions,
+    w: &mut dyn Write,
+) -> Result<()> {
     for file_report in &report.files {
         let path = file_report.path.display();
         writeln!(w, "\n{path}")?;
@@ -54,6 +59,22 @@ pub fn write_text(report: &ValidationReport, w: &mut dyn Write) -> Result<()> {
                         "  [{severity_label}] {id}: {message}{loc_str}",
                         id = result.rule_id,
                     )?;
+                }
+            }
+        }
+
+        if options.show_review {
+            let reviews: Vec<_> = file_report
+                .results
+                .iter()
+                .filter(|r| matches!(r.outcome, CheckOutcome::NeedsReview { .. }))
+                .collect();
+            if !reviews.is_empty() {
+                writeln!(w, "\n  Manual review ({} items):", reviews.len())?;
+                for result in reviews {
+                    if let CheckOutcome::NeedsReview { reason } = &result.outcome {
+                        writeln!(w, "  [REVIEW] {}: {reason}", result.rule_id)?;
+                    }
                 }
             }
         }

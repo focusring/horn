@@ -1,5 +1,8 @@
 pub mod checks;
+pub mod content;
 pub mod document;
+pub mod fontprog;
+pub mod matterhorn;
 pub mod model;
 pub mod output;
 

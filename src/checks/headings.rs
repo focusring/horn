@@ -18,6 +18,10 @@ impl Check for HeadingChecks {
         14
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["14-002", "14-003", "14-006", "14-007"]
+    }
+
     fn description(&self) -> &'static str {
         "Headings: hierarchy, no skipped levels"
     }
@@ -68,7 +72,7 @@ impl Check for HeadingChecks {
         for heading in &headings {
             if heading.level > prev_level + 1 && prev_level > 0 {
                 results.push(CheckResult {
-                    rule_id: "14-006".to_string(),
+                    rule_id: "14-003".to_string(),
                     checkpoint: 14,
                     description: format!(
                         "Heading level skipped: H{prev_level} followed by H{}",
@@ -90,7 +94,7 @@ impl Check for HeadingChecks {
 
         if !skip_found {
             results.push(CheckResult {
-                rule_id: "14-006".to_string(),
+                rule_id: "14-003".to_string(),
                 checkpoint: 14,
                 description: "Heading hierarchy has no skipped levels".to_string(),
                 severity: Severity::Info,
@@ -103,7 +107,7 @@ impl Check for HeadingChecks {
         // doesn't properly distinguish heading levels through nesting.
         if has_generic_h_sibling_violation {
             results.push(CheckResult {
-                rule_id: "14-003".to_string(),
+                rule_id: "14-006".to_string(),
                 checkpoint: 14,
                 description: "Generic H headings at the same nesting level are ambiguous"
                     .to_string(),

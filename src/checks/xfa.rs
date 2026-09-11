@@ -5,8 +5,10 @@ use anyhow::Result;
 
 /// Checkpoint 25: XFA forms.
 ///
-/// PDF/UA-1 forbids XFA form data. Documents must use AcroForm-only interactive forms.
-/// If `/AcroForm/XFA` exists in the catalog, the document fails.
+/// PDF/UA-1 clause 7.15 forbids *dynamic* XFA forms: the XFA `config` packet
+/// must not contain a `dynamicRender` element with the value `required`
+/// (Matterhorn 25-001). Static XFA (`dynamicRender` absent or `forbidden`) is
+/// permitted, although the `AcroForm` fields still have to satisfy checkpoint 28.
 pub struct XfaCheck;
 
 impl Check for XfaCheck {
@@ -18,8 +20,12 @@ impl Check for XfaCheck {
         25
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["25-001"]
+    }
+
     fn description(&self) -> &'static str {
-        "XFA: document must not contain XFA form data"
+        "XFA: dynamicRender must not be required"
     }
 
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>> {
@@ -60,16 +66,132 @@ fn check_xfa_presence(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     };
 
     // Check for /XFA key within AcroForm
-    match acro_form.get(b"XFA") {
-        Ok(_) => {
-            results.push(fail(
-                "25-001",
-                "Document contains XFA form data — PDF/UA requires AcroForm-only interactive forms",
-            ));
+    let Ok(xfa_obj) = acro_form.get(b"XFA") else {
+        results.push(pass("25-001", "No XFA form data in AcroForm"));
+        return;
+    };
+
+    let xml = collect_xfa_xml(lopdf_doc, xfa_obj);
+    if xfa_requires_dynamic_render(&xml) {
+        results.push(fail(
+            "25-001",
+            "XFA config packet sets <dynamicRender>required</dynamicRender> — dynamic XFA forms are not permitted in PDF/UA",
+        ));
+    } else {
+        results.push(CheckResult {
+            rule_id: "25-001".to_string(),
+            checkpoint: 25,
+            description: "XFA form data present but dynamicRender is not required (static XFA)"
+                .to_string(),
+            severity: Severity::Warning,
+            outcome: CheckOutcome::NeedsReview {
+                reason: "Document contains static XFA form data; verify the AcroForm representation is complete and accessible".to_string(),
+            },
+        });
+    }
+}
+
+/// Concatenate the XML of an /XFA entry, which is either a single stream or an
+/// array of `(packet name, stream)` pairs (ISO 32000-1, 12.7.8).
+fn collect_xfa_xml(doc: &lopdf::Document, xfa: &lopdf::Object) -> String {
+    let mut out = String::new();
+    let mut append_stream = |obj: &lopdf::Object| {
+        let resolved = match obj {
+            lopdf::Object::Reference(r) => doc.get_object(*r).ok(),
+            other => Some(other),
+        };
+        if let Some(stream) = resolved.and_then(|o| o.as_stream().ok()) {
+            if let Ok(data) = stream.decompressed_content() {
+                out.push_str(&String::from_utf8_lossy(&data));
+            }
         }
-        Err(_) => {
-            results.push(pass("25-001", "No XFA form data in AcroForm"));
+    };
+    match xfa {
+        lopdf::Object::Array(items) => {
+            for item in items {
+                append_stream(item);
+            }
         }
+        other => append_stream(other),
+    }
+    out
+}
+
+/// True if the XFA XML contains a `<dynamicRender>` element (optionally
+/// namespace-prefixed, case-insensitive) whose text content is `required`.
+fn xfa_requires_dynamic_render(xml: &str) -> bool {
+    let lower = xml.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut pos = 0;
+    while let Some(idx) = lower[pos..].find('<') {
+        let start = pos + idx + 1;
+        pos = start;
+        // Skip comments entirely, and processing instructions / closing tags
+        if lower[start..].starts_with("!--") {
+            let Some(end) = lower[start..].find("-->") else {
+                break;
+            };
+            pos = start + end + 3;
+            continue;
+        }
+        if bytes
+            .get(start)
+            .is_none_or(|b| matches!(b, b'!' | b'?' | b'/'))
+        {
+            continue;
+        }
+        // Element name: up to whitespace, '>' or '/'
+        let name_end = lower[start..]
+            .find(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/')
+            .map_or(lower.len(), |i| start + i);
+        let qname = &lower[start..name_end];
+        let local = qname.rsplit(':').next().unwrap_or(qname);
+        if local != "dynamicrender" {
+            continue;
+        }
+        let Some(gt) = lower[name_end..].find('>') else {
+            break;
+        };
+        if lower[name_end..name_end + gt].ends_with('/') {
+            continue; // self-closing, no text content
+        }
+        let value_start = name_end + gt + 1;
+        let Some(lt) = lower[value_start..].find('<') else {
+            break;
+        };
+        if lower[value_start..value_start + lt].trim() == "required" {
+            return true;
+        }
+        pos = value_start + lt;
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::xfa_requires_dynamic_render;
+
+    #[test]
+    fn matches_element_not_substring() {
+        assert!(xfa_requires_dynamic_render(
+            "<config><present><pdf><dynamicRender>required</dynamicRender></pdf></present></config>"
+        ));
+        assert!(xfa_requires_dynamic_render(
+            "<xfa:dynamicRender> Required </xfa:dynamicRender>"
+        ));
+        assert!(!xfa_requires_dynamic_render(
+            "<dynamicRender>forbidden</dynamicRender>"
+        ));
+        assert!(!xfa_requires_dynamic_render(
+            "<!-- <dynamicRender>required</dynamicRender> -->"
+        ));
+        assert!(!xfa_requires_dynamic_render(
+            "<dynamicRenderX>required</dynamicRenderX>"
+        ));
+        assert!(!xfa_requires_dynamic_render(
+            "<note dynamicRender=\"required\">x</note>"
+        ));
+        assert!(!xfa_requires_dynamic_render("<dynamicRender/>"));
     }
 }
 

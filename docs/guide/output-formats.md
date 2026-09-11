@@ -11,13 +11,22 @@ horn validate document.pdf
 ```
 
 ```
-document.pdf (PDF/UA-1)
-  FAIL  06-001  Document language not set
-  FAIL  13-004  Figure missing Alt text (page 3, element Figure)
-  PASS  14-002  Heading levels not skipped
+document.pdf
+============
+  Standard: PDF/UA-1
+  [FAIL] 11-001: Document catalog missing /Lang entry
+  [FAIL] 13-004: Figure element has no /Alt or /ActualText [Figure]
 
-1 file, 2 failures, 1 pass
+  Summary: 41 passed, 2 failed, 24 needs review
+
+---
+Total: 0/1 files compliant
 ```
+
+Rule ids are the official Matterhorn Protocol 1.1 indices. Add `--review` to
+also list the human-judgment conditions that apply to the document (for
+example, "tables are present: verify every column header cell is tagged as
+`<TH>`"), so a reviewer has the complete Matterhorn checklist in one place.
 
 Best for: local development and manual review.
 
@@ -37,13 +46,23 @@ horn validate document.pdf --format json
       "standard": "pdf-ua-1",
       "results": [
         {
-          "rule_id": "06-001",
-          "checkpoint": 6,
-          "description": "Document language not set",
+          "rule_id": "11-001",
+          "checkpoint": 11,
+          "description": "Document catalog missing /Lang entry",
           "severity": "error",
           "outcome": {
             "status": "Fail",
-            "message": "No /Lang entry in document catalog"
+            "message": "Document catalog missing /Lang entry"
+          }
+        },
+        {
+          "rule_id": "15-001",
+          "checkpoint": 15,
+          "description": "A row has a header cell, but that header cell is not tagged as a header.",
+          "severity": "info",
+          "outcome": {
+            "status": "NeedsReview",
+            "reason": "Tables are present: verify every row header cell is tagged as <TH>"
           }
         }
       ],
