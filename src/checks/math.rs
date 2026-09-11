@@ -78,7 +78,7 @@ impl Check for MathChecks {
                 if !has_alt && !has_actual {
                     missing_alt += 1;
                     results.push(fail(
-                    "17-001",
+                    "17-002",
                     &format!(
                         "Formula {formula_count} has no /Alt or /ActualText — mathematical expressions must have alternative text"
                     ),
@@ -90,7 +90,7 @@ impl Check for MathChecks {
 
         if formula_count > 0 && missing_alt == 0 {
             results.push(pass(
-                "17-001",
+                "17-002",
                 &format!("All {formula_count} Formula element(s) have alternative text"),
             ));
         }

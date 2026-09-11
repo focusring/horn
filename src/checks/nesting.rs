@@ -13,8 +13,12 @@ use anyhow::Result;
 /// - List (L) children: only LI, Caption allowed
 /// - LI children: only Lbl, `LBody` allowed
 /// - TOC children: only TOCI, TOC, Caption allowed
+/// - Ruby children: only RB, RT, RP allowed (09-007); Warichu: only WT, WP (09-008)
 /// - Cardinality: at most one `THead`, one `TFoot` per Table; THead/TFoot require `TBody`
 /// - Caption position: first or last child only
+///
+/// Rule ids follow the Matterhorn Protocol: 09-004 (tables), 09-005 (lists),
+/// 09-006 (TOC), 09-007 (Ruby), 09-008 (Warichu).
 pub struct NestingChecks;
 
 impl Check for NestingChecks {
@@ -76,6 +80,8 @@ fn walk_and_validate(
         b"L" => validate_list_children(&children, results),
         b"LI" => validate_li_children(&children, results),
         b"TOC" => validate_toc_children(&children, results),
+        b"Ruby" => validate_ruby_children(&children, results),
+        b"Warichu" => validate_warichu_children(&children, results),
         _ => {}
     }
 
@@ -184,7 +190,7 @@ fn validate_table_children(children: &[ChildInfo], results: &mut Vec<CheckResult
         if !allowed.contains(&ct.as_slice()) {
             let type_name = String::from_utf8_lossy(ct);
             results.push(fail(
-                "09-006",
+                "09-004",
                 &format!("{type_name} is not allowed as a child of Table (only THead/TBody/TFoot/TR/Caption)"),
             ));
         }
@@ -205,29 +211,29 @@ fn validate_table_children(children: &[ChildInfo], results: &mut Vec<CheckResult
 
     // At most one THead
     if thead_count > 1 {
-        results.push(fail("09-006", "Table has more than one THead"));
+        results.push(fail("09-004", "Table has more than one THead"));
     }
 
     // At most one TFoot
     if tfoot_count > 1 {
-        results.push(fail("09-006", "Table has more than one TFoot"));
+        results.push(fail("09-004", "Table has more than one TFoot"));
     }
 
     // THead requires TBody
     if thead_count > 0 && tbody_count == 0 {
-        results.push(fail("09-006", "Table has THead but no TBody"));
+        results.push(fail("09-004", "Table has THead but no TBody"));
     }
 
     // TFoot requires TBody
     if tfoot_count > 0 && tbody_count == 0 {
-        results.push(fail("09-006", "Table has TFoot but no TBody"));
+        results.push(fail("09-004", "Table has TFoot but no TBody"));
     }
 
     // Caption must be first or last child
     for &pos in &caption_positions {
         if pos != 0 && pos != children.len() - 1 {
             results.push(fail(
-                "09-006",
+                "09-004",
                 "Caption in Table is not the first or last child",
             ));
         }
@@ -235,7 +241,7 @@ fn validate_table_children(children: &[ChildInfo], results: &mut Vec<CheckResult
 
     // Multiple Captions
     if caption_positions.len() > 1 {
-        results.push(fail("09-006", "Table has more than one Caption"));
+        results.push(fail("09-004", "Table has more than one Caption"));
     }
 }
 
@@ -246,7 +252,7 @@ fn validate_tr_children(children: &[ChildInfo], results: &mut Vec<CheckResult>) 
         if ct != b"TH" && ct != b"TD" {
             let type_name = String::from_utf8_lossy(ct);
             results.push(fail(
-                "09-006",
+                "09-004",
                 &format!("{type_name} is not allowed as a child of TR (only TH/TD)"),
             ));
         }
@@ -265,7 +271,7 @@ fn validate_table_section_children(
         if ct != b"TR" {
             let type_name = String::from_utf8_lossy(ct);
             results.push(fail(
-                "09-006",
+                "09-004",
                 &format!("{type_name} is not allowed as a child of {parent_name} (only TR)"),
             ));
         }
@@ -282,7 +288,7 @@ fn validate_list_children(children: &[ChildInfo], results: &mut Vec<CheckResult>
         if ct != b"LI" && ct != b"Caption" && ct != b"L" {
             let type_name = String::from_utf8_lossy(ct);
             results.push(fail(
-                "09-006",
+                "09-005",
                 &format!("{type_name} is not allowed as a child of L (only LI/Caption/L)"),
             ));
         }
@@ -294,12 +300,12 @@ fn validate_list_children(children: &[ChildInfo], results: &mut Vec<CheckResult>
     // Caption must be first child of List
     for &pos in &caption_positions {
         if pos != 0 {
-            results.push(fail("09-006", "Caption in List is not the first child"));
+            results.push(fail("09-005", "Caption in List is not the first child"));
         }
     }
 
     if caption_positions.len() > 1 {
-        results.push(fail("09-006", "List has more than one Caption"));
+        results.push(fail("09-005", "List has more than one Caption"));
     }
 }
 
@@ -310,7 +316,7 @@ fn validate_li_children(children: &[ChildInfo], results: &mut Vec<CheckResult>) 
         if ct != b"Lbl" && ct != b"LBody" {
             let type_name = String::from_utf8_lossy(ct);
             results.push(fail(
-                "09-006",
+                "09-005",
                 &format!("{type_name} is not allowed as a child of LI (only Lbl/LBody)"),
             ));
         }
@@ -350,6 +356,57 @@ fn validate_toc_children(children: &[ChildInfo], results: &mut Vec<CheckResult>)
     }
 }
 
+/// Ruby may only contain RB, RT and RP, in that order (ISO 32000-1 Table 338).
+fn validate_ruby_children(children: &[ChildInfo], results: &mut Vec<CheckResult>) {
+    let mut last_rank = 0u8;
+    for child in children {
+        let ct = child.elem_type.as_slice();
+        let rank = match ct {
+            b"RB" => 1,
+            b"RT" => 2,
+            b"RP" => 3,
+            _ => {
+                let type_name = String::from_utf8_lossy(ct);
+                results.push(fail(
+                    "09-007",
+                    &format!("{type_name} is not allowed as a child of Ruby (only RB/RT/RP)"),
+                ));
+                continue;
+            }
+        };
+        if rank < last_rank {
+            results.push(fail(
+                "09-007",
+                "Ruby children are not in the required order RB, RT, RP",
+            ));
+        }
+        last_rank = rank;
+    }
+    if !children.is_empty() && !children.iter().any(|c| c.elem_type == b"RB") {
+        results.push(fail("09-007", "Ruby element has no RB (base text) child"));
+    }
+    if !children.is_empty() && !children.iter().any(|c| c.elem_type == b"RT") {
+        results.push(fail("09-007", "Ruby element has no RT (annotation text) child"));
+    }
+}
+
+/// Warichu may only contain WT and WP (ISO 32000-1 Table 338).
+fn validate_warichu_children(children: &[ChildInfo], results: &mut Vec<CheckResult>) {
+    for child in children {
+        let ct = child.elem_type.as_slice();
+        if ct != b"WT" && ct != b"WP" {
+            let type_name = String::from_utf8_lossy(ct);
+            results.push(fail(
+                "09-008",
+                &format!("{type_name} is not allowed as a child of Warichu (only WT/WP)"),
+            ));
+        }
+    }
+    if !children.is_empty() && !children.iter().any(|c| c.elem_type == b"WT") {
+        results.push(fail("09-008", "Warichu element has no WT (text) child"));
+    }
+}
+
 /// Validate that a child type appears inside an appropriate parent.
 fn validate_required_parent(parent_type: &[u8], child_type: &[u8], results: &mut Vec<CheckResult>) {
     let child_name = || String::from_utf8_lossy(child_type).into_owned();
@@ -359,7 +416,7 @@ fn validate_required_parent(parent_type: &[u8], child_type: &[u8], results: &mut
         // TR must be inside Table, THead, TBody, or TFoot
         b"TR" if !matches!(parent_type, b"Table" | b"THead" | b"TBody" | b"TFoot") => {
             results.push(fail(
-                "09-006",
+                "09-004",
                 &format!(
                     "TR is enclosed in {} — must be in Table/THead/TBody/TFoot",
                     parent_name()
@@ -369,7 +426,7 @@ fn validate_required_parent(parent_type: &[u8], child_type: &[u8], results: &mut
         // TH/TD must be inside TR
         b"TH" | b"TD" if parent_type != b"TR" => {
             results.push(fail(
-                "09-006",
+                "09-004",
                 &format!(
                     "{} is enclosed in {} — must be in TR",
                     child_name(),
@@ -380,7 +437,7 @@ fn validate_required_parent(parent_type: &[u8], child_type: &[u8], results: &mut
         // THead/TBody/TFoot must be inside Table
         b"THead" | b"TBody" | b"TFoot" if parent_type != b"Table" => {
             results.push(fail(
-                "09-006",
+                "09-004",
                 &format!(
                     "{} is enclosed in {} — must be in Table",
                     child_name(),
@@ -391,14 +448,14 @@ fn validate_required_parent(parent_type: &[u8], child_type: &[u8], results: &mut
         // LI must be inside L
         b"LI" if parent_type != b"L" => {
             results.push(fail(
-                "09-006",
+                "09-005",
                 &format!("LI is enclosed in {} — must be in L (List)", parent_name()),
             ));
         }
         // LBody must be inside LI
         b"LBody" if parent_type != b"LI" => {
             results.push(fail(
-                "09-006",
+                "09-005",
                 &format!("LBody is enclosed in {} — must be in LI", parent_name()),
             ));
         }
@@ -407,6 +464,28 @@ fn validate_required_parent(parent_type: &[u8], child_type: &[u8], results: &mut
             results.push(fail(
                 "09-006",
                 &format!("TOCI is enclosed in {} — must be in TOC", parent_name()),
+            ));
+        }
+        // RB/RT/RP must be inside Ruby (ISO 32000-1 Table 338)
+        b"RB" | b"RT" | b"RP" if parent_type != b"Ruby" => {
+            results.push(fail(
+                "09-007",
+                &format!(
+                    "{} is enclosed in {} — must be in Ruby",
+                    child_name(),
+                    parent_name()
+                ),
+            ));
+        }
+        // WT/WP must be inside Warichu (ISO 32000-1 Table 338)
+        b"WT" | b"WP" if parent_type != b"Warichu" => {
+            results.push(fail(
+                "09-008",
+                &format!(
+                    "{} is enclosed in {} — must be in Warichu",
+                    child_name(),
+                    parent_name()
+                ),
             ));
         }
         _ => {}

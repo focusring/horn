@@ -79,7 +79,7 @@ impl Check for FontChecks {
         // PDF 2.0 / PDF/UA-2 deprecated the CIDSet requirement (31-004).
         // Remove those results for UA-2 documents.
         if standard == Standard::Ua2 {
-            results.retain(|r| r.rule_id != "31-004");
+            results.retain(|r| r.rule_id != "31-x02");
         }
 
         Ok(results)
@@ -142,7 +142,7 @@ fn check_font_descriptor_embedding(
 
             if has_font_file {
                 results.push(CheckResult {
-                    rule_id: "31-001".to_string(),
+                    rule_id: "31-009".to_string(),
                     checkpoint: 31,
                     description: format!("Font /{font_label} is embedded"),
                     severity: Severity::Info,
@@ -150,7 +150,7 @@ fn check_font_descriptor_embedding(
                 });
             } else {
                 results.push(CheckResult {
-                    rule_id: "31-001".to_string(),
+                    rule_id: "31-009".to_string(),
                     checkpoint: 31,
                     description: format!("Font /{font_label} is not embedded"),
                     severity: Severity::Error,
@@ -174,7 +174,7 @@ fn check_font_descriptor_embedding(
 
         if subtype != "Type3" {
             results.push(CheckResult {
-                rule_id: "31-001".to_string(),
+                rule_id: "31-009".to_string(),
                 checkpoint: 31,
                 description: format!("Font /{font_label} has no FontDescriptor"),
                 severity: Severity::Error,
@@ -253,7 +253,7 @@ fn check_tounicode_content(
 
     if null_mappings > 0 {
         results.push(CheckResult {
-            rule_id: "31-007".to_string(),
+            rule_id: "31-028".to_string(),
             checkpoint: 31,
             description: format!(
                 "Font /{font_label}: ToUnicode CMap has {null_mappings} mapping(s) to U+0000"
@@ -270,7 +270,7 @@ fn check_tounicode_content(
 
     if nonchar_mappings > 0 {
         results.push(CheckResult {
-            rule_id: "31-007".to_string(),
+            rule_id: "31-029".to_string(),
             checkpoint: 31,
             description: format!(
                 "Font /{font_label}: ToUnicode CMap has {nonchar_mappings} mapping(s) to Unicode noncharacters"
@@ -326,7 +326,7 @@ fn check_encoding_differences(
                 .is_some_and(|flags| flags & 0x04 != 0); // bit 3 = symbolic
             if !is_symbolic {
                 results.push(CheckResult {
-                    rule_id: "31-005".to_string(),
+                    rule_id: "31-019".to_string(),
                     checkpoint: 31,
                     description: format!(
                         "Font /{font_label}: TrueType font missing /Encoding"
@@ -349,7 +349,7 @@ fn check_encoding_differences(
         if !is_valid_encoding_name(name) {
             let name_str = String::from_utf8_lossy(name);
             results.push(CheckResult {
-                rule_id: "31-005".to_string(),
+                rule_id: "31-021".to_string(),
                 checkpoint: 31,
                 description: format!(
                     "Font /{font_label}: /Encoding /{name_str} is not a valid predefined encoding"
@@ -375,12 +375,12 @@ fn check_encoding_differences(
     let has_diff = enc_dict.get(b"Differences").is_ok();
 
     // Check /BaseEncoding if present
-    if let Ok(base_enc) = enc_dict.get(b"BaseEncoding") {
+    if let Ok(base_enc) = enc_dict.get_deref(b"BaseEncoding", doc) {
         if let Ok(name) = base_enc.as_name() {
             if !is_valid_encoding_name(name) {
                 let name_str = String::from_utf8_lossy(name);
                 results.push(CheckResult {
-                    rule_id: "31-005".to_string(),
+                    rule_id: "31-021".to_string(),
                     checkpoint: 31,
                     description: format!(
                         "Font /{font_label}: /BaseEncoding /{name_str} is not a valid encoding"
@@ -400,7 +400,7 @@ fn check_encoding_differences(
     // Empty encoding dictionary — no BaseEncoding and no Differences is invalid
     if !has_base && !has_diff {
         results.push(CheckResult {
-            rule_id: "31-005".to_string(),
+            rule_id: "31-020".to_string(),
             checkpoint: 31,
             description: format!(
                 "Font /{font_label}: Encoding dictionary has neither /BaseEncoding nor /Differences"
@@ -416,8 +416,8 @@ fn check_encoding_differences(
         return;
     }
 
-    // Check /Differences for .notdef entries
-    let Ok(diff_obj) = enc_dict.get(b"Differences") else {
+    // Check /Differences entries (may be an indirect array)
+    let Ok(diff_obj) = enc_dict.get_deref(b"Differences", doc) else {
         return;
     };
     let Ok(diff_arr) = diff_obj.as_array() else {
@@ -425,17 +425,46 @@ fn check_encoding_differences(
     };
 
     let mut notdef_count = 0;
+    let mut non_agl: Vec<String> = Vec::new();
     for item in diff_arr {
         if let Ok(name) = item.as_name() {
             if name == b".notdef" {
                 notdef_count += 1;
+            } else if !crate::fontprog::agl::is_agl_name(name) && !is_uni_glyph_name(name) {
+                non_agl.push(String::from_utf8_lossy(name).into_owned());
             }
         }
     }
 
+    // 31-022: non-symbolic TrueType fonts may only use Adobe Glyph List names in
+    // /Differences (ISO 14289-1, 7.21.6). `uniXXXX`/`uXXXX` names are AGL-compliant
+    // by construction (AGL specification section 3).
+    if subtype.as_deref() == Some(b"TrueType") && !is_symbolic_font(doc, font_dict) && !non_agl.is_empty()
+    {
+        non_agl.sort();
+        non_agl.dedup();
+        let shown: Vec<&str> = non_agl.iter().take(5).map(String::as_str).collect();
+        results.push(CheckResult {
+            rule_id: "31-022".to_string(),
+            checkpoint: 31,
+            description: format!(
+                "Font /{font_label}: /Differences has {} glyph name(s) not in the Adobe Glyph List",
+                non_agl.len()
+            ),
+            severity: Severity::Error,
+            outcome: CheckOutcome::Fail {
+                message: format!(
+                    "Font /{font_label}: non-symbolic TrueType /Differences array contains glyph name(s) not listed in the Adobe Glyph List: /{}",
+                    shown.join(", /")
+                ),
+                location: location.cloned(),
+            },
+        });
+    }
+
     if notdef_count > 0 {
         results.push(CheckResult {
-            rule_id: "31-005".to_string(),
+            rule_id: "31-x04".to_string(),
             checkpoint: 31,
             description: format!(
                 "Font /{font_label}: Encoding /Differences has {notdef_count} .notdef reference(s)"
@@ -449,6 +478,31 @@ fn check_encoding_differences(
             },
         });
     }
+}
+
+/// True if the font's descriptor has the Symbolic flag (bit 3) set and the
+/// Nonsymbolic flag (bit 6) clear.
+fn is_symbolic_font(doc: &lopdf::Document, font_dict: &lopdf::Dictionary) -> bool {
+    font_dict
+        .get_deref(b"FontDescriptor", doc)
+        .ok()
+        .and_then(|o| o.as_dict().ok())
+        .and_then(|d| d.get(b"Flags").ok())
+        .and_then(|o| o.as_i64().ok())
+        .is_some_and(|flags| flags & 0x04 != 0 && flags & 0x20 == 0)
+}
+
+/// `uniXXXX` / `uXXXX[XX]` glyph names, which the AGL specification defines
+/// as valid Unicode-mapped names even though they are not listed individually.
+fn is_uni_glyph_name(name: &[u8]) -> bool {
+    let hex_ok = |h: &[u8]| !h.is_empty() && h.iter().all(u8::is_ascii_hexdigit);
+    if let Some(rest) = name.strip_prefix(b"uni") {
+        return rest.len() >= 4 && rest.len() % 4 == 0 && hex_ok(rest);
+    }
+    if let Some(rest) = name.strip_prefix(b"u") {
+        return (4..=6).contains(&rest.len()) && hex_ok(rest);
+    }
+    false
 }
 
 /// Check if a font encoding name is a valid predefined encoding.
@@ -473,7 +527,7 @@ fn check_tounicode(
 
     if has_tounicode {
         results.push(CheckResult {
-            rule_id: "31-006".to_string(),
+            rule_id: "31-027".to_string(),
             checkpoint: 31,
             description: format!("Font /{font_label} has ToUnicode CMap"),
             severity: Severity::Info,
@@ -559,7 +613,7 @@ fn check_tounicode(
 
         if has_known_cid_collection {
             results.push(CheckResult {
-                rule_id: "31-006".to_string(),
+                rule_id: "31-027".to_string(),
                 checkpoint: 31,
                 description: format!(
                     "Font /{font_label} uses Adobe CID collection with known Unicode mapping"
@@ -569,7 +623,7 @@ fn check_tounicode(
             });
         } else {
             results.push(CheckResult {
-                rule_id: "31-006".to_string(),
+                rule_id: "31-027".to_string(),
                 checkpoint: 31,
                 description: format!("Font /{font_label} (composite) missing ToUnicode CMap"),
                 severity: Severity::Error,
@@ -583,7 +637,7 @@ fn check_tounicode(
         }
     } else if !has_known_encoding {
         results.push(CheckResult {
-            rule_id: "31-006".to_string(),
+            rule_id: "31-027".to_string(),
             checkpoint: 31,
             description: format!(
                 "Font /{font_label} missing ToUnicode and has no standard encoding"
@@ -598,7 +652,7 @@ fn check_tounicode(
         });
     } else {
         results.push(CheckResult {
-            rule_id: "31-006".to_string(),
+            rule_id: "31-027".to_string(),
             checkpoint: 31,
             description: format!("Font /{font_label} uses standard encoding (implicit Unicode)"),
             severity: Severity::Info,
@@ -638,7 +692,7 @@ fn check_cidfont_requirements(
 
                 if is_valid {
                     results.push(CheckResult {
-                        rule_id: "31-002".to_string(),
+                        rule_id: "31-004".to_string(),
                         checkpoint: 31,
                         description: format!(
                             "Font /{font_label}: CIDFontType2 has valid /CIDToGIDMap"
@@ -653,7 +707,7 @@ fn check_cidfont_requirements(
                         "invalid value".to_string()
                     };
                     results.push(CheckResult {
-                        rule_id: "31-002".to_string(),
+                        rule_id: "31-004".to_string(),
                         checkpoint: 31,
                         description: format!(
                             "Font /{font_label}: CIDFontType2 /CIDToGIDMap is {val_desc}"
@@ -670,7 +724,7 @@ fn check_cidfont_requirements(
             }
             Err(_) => {
                 results.push(CheckResult {
-                    rule_id: "31-002".to_string(),
+                    rule_id: "31-005".to_string(),
                     checkpoint: 31,
                     description: format!(
                         "Font /{font_label}: CIDFontType2 missing /CIDToGIDMap"
@@ -706,7 +760,7 @@ fn check_cidfont_requirements(
 
                     if !has_registry || !has_ordering || !has_supplement {
                         results.push(CheckResult {
-                            rule_id: "31-003".to_string(),
+                            rule_id: "31-x01".to_string(),
                             checkpoint: 31,
                             description: format!(
                                 "Font /{font_label}: CIDSystemInfo incomplete"
@@ -726,7 +780,7 @@ fn check_cidfont_requirements(
         Err(_) => {
             // CIDSystemInfo is required for CIDFonts
             results.push(CheckResult {
-                rule_id: "31-003".to_string(),
+                rule_id: "31-x01".to_string(),
                 checkpoint: 31,
                 description: format!("Font /{font_label}: CIDFont missing /CIDSystemInfo"),
                 severity: Severity::Error,
@@ -767,7 +821,7 @@ fn check_cidset(
     // CIDSet must be a stream reference
     let Ok(cidset_ref) = cidset_obj.as_reference() else {
         results.push(CheckResult {
-            rule_id: "31-004".to_string(),
+            rule_id: "31-x02".to_string(),
             checkpoint: 31,
             description: format!("Font /{font_label}: /CIDSet is not a stream reference"),
             severity: Severity::Error,
@@ -786,7 +840,7 @@ fn check_cidset(
     // Must be a stream object
     if cidset_resolved.as_stream().is_err() {
         results.push(CheckResult {
-            rule_id: "31-004".to_string(),
+            rule_id: "31-x02".to_string(),
             checkpoint: 31,
             description: format!("Font /{font_label}: /CIDSet does not reference a valid stream"),
             severity: Severity::Error,
@@ -826,7 +880,7 @@ fn check_type0_cmap_encoding(
         if !is_valid_predefined_cmap(name) {
             let name_str = String::from_utf8_lossy(name);
             results.push(CheckResult {
-                rule_id: "31-003".to_string(),
+                rule_id: "31-006".to_string(),
                 checkpoint: 31,
                 description: format!(
                     "Font /{font_label}: Encoding /{name_str} is not a valid predefined CMap"
@@ -865,7 +919,7 @@ fn check_type0_cmap_encoding(
             if !is_valid_predefined_cmap(name) {
                 let name_str = String::from_utf8_lossy(name);
                 results.push(CheckResult {
-                    rule_id: "31-003".to_string(),
+                    rule_id: "31-008".to_string(),
                     checkpoint: 31,
                     description: format!(
                         "Font /{font_label}: /UseCMap /{name_str} is not a valid predefined CMap"
@@ -896,7 +950,7 @@ fn check_type0_cmap_encoding(
         if let Some(stream_wmode) = cmap_stream_wmode {
             if dict_wmode != stream_wmode {
                 results.push(CheckResult {
-                    rule_id: "31-003".to_string(),
+                    rule_id: "31-007".to_string(),
                     checkpoint: 31,
                     description: format!(
                         "Font /{font_label}: WMode mismatch: dict={dict_wmode}, stream={stream_wmode}"
@@ -966,7 +1020,7 @@ fn check_type0_cmap_encoding(
                         // Case-sensitive comparison per spec
                         if *fr != cmap_reg {
                             results.push(CheckResult {
-                                rule_id: "31-003".to_string(),
+                                rule_id: "31-001".to_string(),
                                 checkpoint: 31,
                                 description: format!(
                                     "Font /{font_label}: Registry mismatch: CMap={cmap_reg}, CIDFont={fr}"
@@ -984,7 +1038,7 @@ fn check_type0_cmap_encoding(
                     if let Some(ref fo) = font_ord {
                         if *fo != cmap_ord {
                             results.push(CheckResult {
-                                rule_id: "31-003".to_string(),
+                                rule_id: "31-002".to_string(),
                                 checkpoint: 31,
                                 description: format!(
                                     "Font /{font_label}: Ordering mismatch: CMap={cmap_ord}, CIDFont={fo}"

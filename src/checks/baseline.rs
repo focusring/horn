@@ -87,64 +87,65 @@ impl Check for BaselineCheck {
 /// checkpoint number, and severity.
 fn map_error_code(code: UaErrorCode) -> (String, u8, Severity) {
     match code {
-        // Checkpoint 06: Metadata
-        UaErrorCode::MissingLanguage => ("06-001".into(), 6, Severity::Error),
-        UaErrorCode::MissingTitle => ("06-004".into(), 6, Severity::Error),
-        UaErrorCode::TitleNotDisplayed => ("06-003".into(), 6, Severity::Error),
+        // Checkpoint 06/07/11: Metadata, viewer preferences, language
+        UaErrorCode::MissingLanguage => ("11-001".into(), 11, Severity::Error),
+        UaErrorCode::MissingTitle => ("06-003".into(), 6, Severity::Error),
+        UaErrorCode::TitleNotDisplayed => ("07-001".into(), 7, Severity::Error),
         UaErrorCode::MissingPdfuaId | UaErrorCode::InvalidPdfuaId => {
-            ("06-004".into(), 6, Severity::Error)
+            ("06-002".into(), 6, Severity::Error)
         }
 
         // Checkpoint 01/09: Structure and tagging
-        UaErrorCode::NotTaggedPdf => ("01-003".into(), 1, Severity::Error),
-        UaErrorCode::ContentNotTagged => ("01-004".into(), 1, Severity::Error),
-        UaErrorCode::InvalidStructureType => ("09-004".into(), 9, Severity::Error),
-        UaErrorCode::InvalidStructureNesting => ("09-006".into(), 9, Severity::Error),
+        UaErrorCode::NotTaggedPdf => ("01-x01".into(), 1, Severity::Error),
+        UaErrorCode::ContentNotTagged => ("01-005".into(), 1, Severity::Error),
+        UaErrorCode::InvalidStructureType => ("02-001".into(), 2, Severity::Error),
+        UaErrorCode::InvalidStructureNesting => ("09-004".into(), 9, Severity::Error),
 
         // Checkpoint 02: Role Mapping
         UaErrorCode::MissingRoleMapping => ("02-001".into(), 2, Severity::Error),
 
         // Checkpoint 13: Images/Figures
         UaErrorCode::FigureMissingAlt => ("13-004".into(), 13, Severity::Error),
-        UaErrorCode::DecorativeNotArtifact => ("01-002".into(), 1, Severity::Warning),
-        UaErrorCode::FigureCaptionNotAssociated => ("13-005".into(), 13, Severity::Warning),
+        UaErrorCode::DecorativeNotArtifact => ("13-x01".into(), 13, Severity::Warning),
+        UaErrorCode::FigureCaptionNotAssociated => ("13-x02".into(), 13, Severity::Warning),
 
         // Checkpoint 14: Headings
-        UaErrorCode::HeadingLevelSkipped => ("14-006".into(), 14, Severity::Error),
+        UaErrorCode::HeadingLevelSkipped => ("14-003".into(), 14, Severity::Error),
 
         // Checkpoint 15: Tables
         UaErrorCode::TableMissingHeaders | UaErrorCode::TableHeadersNotAssociated => {
-            ("15-003".into(), 15, Severity::Error)
+            ("15-x01".into(), 15, Severity::Error)
         }
         UaErrorCode::TableHeaderNotTh | UaErrorCode::TableDataNotTd => {
-            ("15-002".into(), 15, Severity::Error)
+            ("09-004".into(), 9, Severity::Error)
         }
-        UaErrorCode::TableScopeMissing => ("15-004".into(), 15, Severity::Warning),
-        UaErrorCode::ComplexTableNoIds => ("15-005".into(), 15, Severity::Error),
+        UaErrorCode::TableScopeMissing => ("15-003".into(), 15, Severity::Warning),
+        UaErrorCode::ComplexTableNoIds => ("15-x02".into(), 15, Severity::Error),
 
         // Checkpoint 28: Annotations/Links
-        UaErrorCode::LinkTextNotDescriptive => ("28-003".into(), 28, Severity::Warning),
-        UaErrorCode::LinkNoDestination => ("28-004".into(), 28, Severity::Error),
+        UaErrorCode::LinkTextNotDescriptive => ("28-x02".into(), 28, Severity::Warning),
+        UaErrorCode::LinkNoDestination => ("28-x01".into(), 28, Severity::Error),
         UaErrorCode::AnnotationNotTagged => ("28-002".into(), 28, Severity::Error),
-        UaErrorCode::AnnotationMissingContents => ("28-006".into(), 28, Severity::Error),
-        UaErrorCode::WidgetMissingRole => ("28-008".into(), 28, Severity::Error),
+        UaErrorCode::AnnotationMissingContents => ("28-004".into(), 28, Severity::Error),
+        UaErrorCode::WidgetMissingRole => ("28-010".into(), 28, Severity::Error),
 
         // Checkpoint 31: Fonts
-        UaErrorCode::FontNotEmbedded => ("31-001".into(), 31, Severity::Error),
-        UaErrorCode::MissingUnicodeMapping => ("31-006".into(), 31, Severity::Error),
-        UaErrorCode::MissingActualText => ("31-025".into(), 31, Severity::Error),
+        UaErrorCode::FontNotEmbedded => ("31-009".into(), 31, Severity::Error),
+        UaErrorCode::MissingUnicodeMapping => ("31-027".into(), 31, Severity::Error),
+        UaErrorCode::MissingActualText => ("13-x03".into(), 13, Severity::Error),
 
-        // Checkpoint 16: Lists
-        UaErrorCode::ListItemsNotMarked => ("16-001".into(), 16, Severity::Error),
-        UaErrorCode::NestedListInvalid => ("16-002".into(), 16, Severity::Error),
+        // Checkpoint 09: Lists
+        UaErrorCode::ListItemsNotMarked | UaErrorCode::NestedListInvalid => {
+            ("09-005".into(), 9, Severity::Error)
+        }
 
-        // Checkpoint 25/Form fields
-        UaErrorCode::FormFieldMissingName => ("28-009".into(), 28, Severity::Error),
-        UaErrorCode::FormFieldMissingTooltip => ("28-010".into(), 28, Severity::Error),
-        UaErrorCode::RequiredFieldNotIndicated => ("28-011".into(), 28, Severity::Warning),
-        UaErrorCode::FormNoSubmitButton => ("28-012".into(), 28, Severity::Warning),
+        // Checkpoint 28: Form fields
+        UaErrorCode::FormFieldMissingName => ("28-x03".into(), 28, Severity::Error),
+        UaErrorCode::FormFieldMissingTooltip => ("28-005".into(), 28, Severity::Error),
+        UaErrorCode::RequiredFieldNotIndicated => ("28-x04".into(), 28, Severity::Warning),
+        UaErrorCode::FormNoSubmitButton => ("28-x05".into(), 28, Severity::Warning),
 
-        // Other checks — mapped to closest Matterhorn condition
+        // Human-judgment checkpoints — pdf_oxide heuristics, reported as warnings
         UaErrorCode::InsufficientContrast | UaErrorCode::ColorOnlyInformation => {
             ("04-001".into(), 4, Severity::Warning)
         }

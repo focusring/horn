@@ -44,7 +44,7 @@ impl Check for ListChecks {
 
         if list_count > 0 && !errors_found {
             results.push(CheckResult {
-                rule_id: "16-001".to_string(),
+                rule_id: "09-005".to_string(),
                 checkpoint: 16,
                 description: format!("All {list_count} list(s) have valid L/LI structure"),
                 severity: Severity::Info,
@@ -88,7 +88,7 @@ fn check_lists(
             if li_count == 0 {
                 *errors_found = true;
                 results.push(CheckResult {
-                    rule_id: "16-001".to_string(),
+                    rule_id: "09-005".to_string(),
                     checkpoint: 16,
                     description: format!("{list_label}: List has no LI (list item) children"),
                     severity: Severity::Error,
@@ -106,7 +106,7 @@ fn check_lists(
                     .map(|t| String::from_utf8_lossy(t).to_string())
                     .collect();
                 results.push(CheckResult {
-                    rule_id: "16-002".to_string(),
+                    rule_id: "09-005".to_string(),
                     checkpoint: 16,
                     description: format!(
                         "{list_label}: L contains non-LI children: {}",
@@ -171,7 +171,7 @@ fn check_li_structure(
                 if !has_lbody && !has_lbl {
                     *errors_found = true;
                     results.push(CheckResult {
-                        rule_id: "16-003".to_string(),
+                        rule_id: "09-005".to_string(),
                         checkpoint: 16,
                         description: format!("{list_label}, item {li_index}: LI missing LBody"),
                         severity: Severity::Error,

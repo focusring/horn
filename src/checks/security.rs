@@ -105,24 +105,24 @@ fn emit_permission_results(p_value: i64, results: &mut Vec<CheckResult>) {
 
     if accessibility_bit {
         results.push(pass(
-            "26-001",
+            "26-002",
             "Encryption allows assistive technology access (bit 10 set)",
         ));
     } else {
         results.push(fail(
-            "26-001",
+            "26-002",
             "Encryption blocks assistive technology access — /P bit 10 (accessibility extraction) is not set",
         ));
     }
 
     if copy_bit {
         results.push(pass(
-            "26-002",
+            "26-x01",
             "Encryption allows content extraction (bit 5 set)",
         ));
     } else {
         results.push(fail(
-            "26-002",
+            "26-x01",
             "Encryption blocks content extraction — /P bit 5 (copy/extract) is not set",
         ));
     }

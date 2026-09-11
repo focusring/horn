@@ -1,6 +1,6 @@
 use crate::checks::Check;
 use crate::document::HornDocument;
-use crate::model::{CheckOutcome, CheckResult, Severity};
+use crate::model::{CheckOutcome, CheckResult, Severity, Standard};
 use anyhow::Result;
 
 /// Checkpoints 01/09: Document structure checks.
@@ -35,7 +35,7 @@ impl Check for StructureChecks {
 /// 01-003: `MarkInfo` must exist with /Marked = true.
 fn check_mark_info(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     let Ok(catalog) = doc.raw_catalog() else {
-        results.push(fail("01-003", 1, "Cannot read document catalog"));
+        results.push(fail("01-x01", 1, "Cannot read document catalog"));
         return;
     };
 
@@ -50,7 +50,7 @@ fn check_mark_info(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
                         let marked_value = val.as_bool().or_else(|_| val.as_i64().map(|i| i != 0));
                         if let Ok(marked) = marked_value {
                             if marked {
-                                results.push(pass("01-003", 1, "MarkInfo/Marked is true"));
+                                results.push(pass("01-x01", 1, "MarkInfo/Marked is true"));
 
                                 // Additional: check for /Suspects = true (indicates auto-tagged)
                                 if let Ok(suspects) =
@@ -58,7 +58,7 @@ fn check_mark_info(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
                                 {
                                     if suspects {
                                         results.push(CheckResult {
-                                            rule_id: "01-003".to_string(),
+                                            rule_id: "01-x01".to_string(),
                                             checkpoint: 1,
                                             description: "MarkInfo/Suspects is true — structure may be unreliable".to_string(),
                                             severity: Severity::Warning,
@@ -70,25 +70,25 @@ fn check_mark_info(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
                                 }
                             } else {
                                 results.push(fail(
-                                    "01-003",
+                                    "01-x01",
                                     1,
                                     "MarkInfo/Marked is false — document is not tagged",
                                 ));
                             }
                         } else {
-                            results.push(fail("01-003", 1, "MarkInfo/Marked is not a boolean"));
+                            results.push(fail("01-x01", 1, "MarkInfo/Marked is not a boolean"));
                         }
                     }
                     Err(_) => {
-                        results.push(fail("01-003", 1, "MarkInfo missing /Marked entry"));
+                        results.push(fail("01-x01", 1, "MarkInfo missing /Marked entry"));
                     }
                 }
             } else {
-                results.push(fail("01-003", 1, "MarkInfo is not a dictionary"));
+                results.push(fail("01-x01", 1, "MarkInfo is not a dictionary"));
             }
         }
         Err(_) => {
-            results.push(fail("01-003", 1, "Document catalog missing /MarkInfo"));
+            results.push(fail("01-x01", 1, "Document catalog missing /MarkInfo"));
         }
     }
 }
@@ -107,13 +107,13 @@ fn check_struct_tree_root(doc: &mut HornDocument, results: &mut Vec<CheckResult>
                 match lopdf_doc.get_object(ref_id) {
                     Ok(tree_obj) => {
                         if tree_obj.as_dict().is_ok() {
-                            results.push(pass("01-004", 1, "StructTreeRoot exists"));
+                            results.push(pass("01-x02", 1, "StructTreeRoot exists"));
 
                             // Check that it has /K (kids) with at least one child
                             if let Ok(dict) = tree_obj.as_dict() {
                                 if dict.get(b"K").is_err() {
                                     results.push(fail(
-                                        "01-004",
+                                        "01-x02",
                                         1,
                                         "StructTreeRoot has no /K (children) entry",
                                     ));
@@ -121,23 +121,23 @@ fn check_struct_tree_root(doc: &mut HornDocument, results: &mut Vec<CheckResult>
                             }
                         } else {
                             results.push(fail(
-                                "01-004",
+                                "01-x02",
                                 1,
                                 "StructTreeRoot reference does not point to a dictionary",
                             ));
                         }
                     }
                     Err(_) => {
-                        results.push(fail("01-004", 1, "Cannot resolve StructTreeRoot reference"));
+                        results.push(fail("01-x02", 1, "Cannot resolve StructTreeRoot reference"));
                     }
                 }
             } else {
-                results.push(fail("01-004", 1, "StructTreeRoot is not a reference"));
+                results.push(fail("01-x02", 1, "StructTreeRoot is not a reference"));
             }
         }
         Err(_) => {
             results.push(fail(
-                "01-004",
+                "01-x02",
                 1,
                 "Document catalog missing /StructTreeRoot — document is not tagged",
             ));
@@ -147,6 +147,7 @@ fn check_struct_tree_root(doc: &mut HornDocument, results: &mut Vec<CheckResult>
 
 /// 02-001: Role map entries must map to valid standard structure types.
 fn check_role_mapping(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
+    let standard = doc.standard();
     let Ok(catalog) = doc.raw_catalog() else {
         return;
     };
@@ -163,11 +164,35 @@ fn check_role_mapping(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
                 let mut invalid_count = 0;
                 for (user_role, std_role_obj) in role_map {
                     if let Ok(std_role) = std_role_obj.as_name() {
-                        // Check for identity mapping (LI -> LI)
+                        // 02-004: standard structure types must not be remapped.
+                        // (Hn heading types are not standard types and may be mapped.)
+                        // Under PDF/UA-1 the standard set is that of ISO 32000-1; the
+                        // PDF 2.0 additions (Title, Aside, …) are non-standard there and
+                        // are commonly role-mapped, e.g. /Title -> /P.
+                        let is_standard = if standard == Standard::Ua2 {
+                            is_standard_structure_type(user_role)
+                        } else {
+                            is_iso32000_1_structure_type(user_role)
+                        };
+                        if is_standard {
+                            let role_str = String::from_utf8_lossy(user_role);
+                            let target_str = String::from_utf8_lossy(std_role);
+                            results.push(fail(
+                                "02-004",
+                                2,
+                                &format!(
+                                    "Role map remaps standard structure type /{role_str} -> /{target_str}"
+                                ),
+                            ));
+                            invalid_count += 1;
+                            continue;
+                        }
+
+                        // 02-003: identity mapping (LI -> LI) is a trivial cycle
                         if user_role == std_role {
                             let role_str = String::from_utf8_lossy(user_role);
                             results.push(fail(
-                                "02-001",
+                                "02-003",
                                 2,
                                 &format!(
                                     "Role map entry /{role_str} -> /{role_str} is an identity mapping (circular)"
@@ -183,7 +208,7 @@ fn check_role_mapping(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
                             if let Some(cycle) = detect_role_cycle(role_map, user_role) {
                                 let user_role_str = String::from_utf8_lossy(user_role);
                                 results.push(fail(
-                                    "02-001",
+                                    "02-003",
                                     2,
                                     &format!(
                                         "Role map entry /{user_role_str} creates a circular mapping: {cycle}"
@@ -260,7 +285,16 @@ fn get_struct_tree_dict<'a>(
     doc.get_object(ref_id).ok()?.as_dict().ok()
 }
 
-/// Standard PDF structure types from ISO 32000-1 Table 333-338 and PDF/UA.
+/// Standard structure types defined in ISO 32000-1 (Tables 333–338) only.
+fn is_iso32000_1_structure_type(name: &[u8]) -> bool {
+    is_standard_structure_type(name)
+        && !matches!(
+            name,
+            b"DocumentFragment" | b"Aside" | b"Title" | b"FENote" | b"Sub" | b"Em" | b"Strong"
+        )
+}
+
+/// Standard PDF structure types from ISO 32000-1 Table 333-338 and PDF 2.0.
 fn is_standard_structure_type(name: &[u8]) -> bool {
     matches!(
         name,

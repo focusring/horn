@@ -40,7 +40,7 @@ impl Check for TableChecks {
             // 15-002: Tables must contain TR elements with TH or TD children
             if table.rows.is_empty() {
                 results.push(fail(
-                    "15-002",
+                    "09-004",
                     15,
                     &format!("{table_label}: Table structure element has no TR (row) children"),
                 ));
@@ -50,7 +50,7 @@ impl Check for TableChecks {
             let has_th = table.rows.iter().any(|r| r.has_th);
             if !has_th && !table.rows.is_empty() {
                 results.push(fail(
-                    "15-003",
+                    "15-x01",
                     15,
                     &format!(
                         "{table_label}: No TH (header) cells found — tables must identify headers"
@@ -68,7 +68,7 @@ impl Check for TableChecks {
                 && !table.has_thead
             {
                 results.push(CheckResult {
-                    rule_id: "15-005".to_string(),
+                    rule_id: "15-x02".to_string(),
                     checkpoint: 15,
                     description: format!(
                         "{table_label}: Complex table without /Headers attributes on cells"
@@ -88,7 +88,7 @@ impl Check for TableChecks {
             // data cells can't be programmatically associated with headers.
             if has_th && !table.has_scope_attr && !table.has_headers_attr && !table.has_thead {
                 results.push(fail(
-                    "15-004",
+                    "15-003",
                     15,
                     &format!("{table_label}: TH cells lack /Scope attribute — headers cannot be associated with data cells"),
                 ));
@@ -98,7 +98,7 @@ impl Check for TableChecks {
             // Report when any TH has an invalid Scope, even if other THs have valid ones.
             if table.has_invalid_scope {
                 results.push(fail(
-                    "15-004",
+                    "15-003",
                     15,
                     &format!("{table_label}: TH cell(s) have /Scope with invalid value (must be /Row, /Column, or /Both)"),
                 ));
@@ -107,7 +107,7 @@ impl Check for TableChecks {
             // 15-006: RowSpan/ColSpan attribute values must be valid positive integers
             // and must not exceed the actual table dimensions
             for issue in &table.attr_issues {
-                results.push(fail("15-006", 15, &format!("{table_label}: {issue}")));
+                results.push(fail("15-x03", 15, &format!("{table_label}: {issue}")));
             }
 
             // Check RowSpan/ColSpan values against actual table geometry
@@ -116,7 +116,7 @@ impl Check for TableChecks {
             for span in &table.span_values {
                 if span.is_row && usize::try_from(span.value).unwrap_or(0) > total_rows {
                     results.push(fail(
-                        "15-006",
+                        "15-x03",
                         15,
                         &format!(
                             "{table_label}: {} cell has RowSpan={} but table only has {} rows",
@@ -126,7 +126,7 @@ impl Check for TableChecks {
                 }
                 if !span.is_row && usize::try_from(span.value).unwrap_or(0) > max_cols {
                     results.push(fail(
-                        "15-006",
+                        "15-x03",
                         15,
                         &format!(
                             "{table_label}: {} cell has ColSpan={} but max column count is {}",
@@ -136,10 +136,25 @@ impl Check for TableChecks {
                 }
             }
 
+            // 15-x04: rows must occupy the same number of columns once RowSpan and
+            // ColSpan are accounted for (Matterhorn 01-006 NOTE 3; veraPDF 7.2-42/43).
+            // Irregular tables almost always indicate broken table structure, and
+            // header/data association cannot be determined for them.
+            if let Some((row_idx, width, expected)) = find_irregular_row(&table.rows) {
+                results.push(fail(
+                    "15-x04",
+                    15,
+                    &format!(
+                        "{table_label}: row {} spans {width} column(s) but the first row spans {expected} — rows must have the same number of columns after RowSpan/ColSpan",
+                        row_idx + 1
+                    ),
+                ));
+            }
+
             // If everything checks out
             if has_th && !table.rows.is_empty() && table.attr_issues.is_empty() {
                 results.push(pass(
-                    "15-002",
+                    "15-003",
                     15,
                     &format!("{table_label}: Table has valid TR/TH/TD structure"),
                 ));
@@ -174,6 +189,8 @@ struct RowInfo {
     has_td: bool,
     cell_count: usize,
     effective_cols: usize, // cell_count adjusted for ColSpan values
+    /// (RowSpan, ColSpan) of every cell in document order, defaulting to (1, 1).
+    cells: Vec<(usize, usize)>,
 }
 
 fn collect_tables(
@@ -234,6 +251,7 @@ fn analyze_table(
                 has_td: false,
                 cell_count: 0,
                 effective_cols: 0,
+                cells: Vec::new(),
             };
             analyze_row(doc, dict, &mut row, table);
             table.rows.push(row);
@@ -270,6 +288,8 @@ fn analyze_row(
                     row.has_th = true;
                     row.cell_count += 1;
                     row.effective_cols += get_colspan(doc, child_dict);
+                    row.cells
+                        .push((get_span(doc, child_dict, b"RowSpan"), get_colspan(doc, child_dict)));
                     // Check for /Scope attribute on TH cells and validate value
                     if let Ok(attrs) = child_dict.get(b"A") {
                         let (has, valid) = check_scope_attr(doc, attrs);
@@ -289,6 +309,8 @@ fn analyze_row(
                     row.has_td = true;
                     row.cell_count += 1;
                     row.effective_cols += get_colspan(doc, child_dict);
+                    row.cells
+                        .push((get_span(doc, child_dict, b"RowSpan"), get_colspan(doc, child_dict)));
 
                     // Check for /Headers attribute (PDF 2.0 / PDF/UA)
                     if let Ok(attrs) = child_dict.get(b"A") {
@@ -307,12 +329,19 @@ fn analyze_row(
 
 /// Get the `ColSpan` value from a cell's attribute dictionary. Defaults to 1.
 fn get_colspan(doc: &lopdf::Document, cell_dict: &lopdf::Dictionary) -> usize {
+    get_span(doc, cell_dict, b"ColSpan")
+}
+
+/// Get a `RowSpan`/`ColSpan` attribute value from a cell's attribute dictionary
+/// (which may be a dictionary, an array of dictionaries, or a reference).
+/// Invalid or missing values default to 1.
+fn get_span(doc: &lopdf::Document, cell_dict: &lopdf::Dictionary, key: &[u8]) -> usize {
     let Ok(attrs) = cell_dict.get(b"A") else {
         return 1;
     };
 
     let from_dict = |d: &lopdf::Dictionary| -> Option<usize> {
-        d.get(b"ColSpan")
+        d.get(key)
             .ok()?
             .as_i64()
             .ok()
@@ -346,6 +375,52 @@ fn get_colspan(doc: &lopdf::Document, cell_dict: &lopdf::Dictionary) -> usize {
             .unwrap_or(1),
         _ => 1,
     }
+}
+
+/// Lay the table out on a grid (HTML-style) and return the first row whose
+/// column count differs from the first row's, as `(row index, width, expected)`.
+///
+/// `pending[c]` counts how many further rows column `c` is still occupied by a
+/// `RowSpan` from a cell above.
+fn find_irregular_row(rows: &[RowInfo]) -> Option<(usize, usize, usize)> {
+    let mut pending: Vec<usize> = Vec::new();
+    let mut expected: Option<usize> = None;
+
+    for (row_idx, row) in rows.iter().enumerate() {
+        let mut col = 0usize;
+        for &(rowspan, colspan) in &row.cells {
+            while col < pending.len() && pending[col] > 0 {
+                col += 1;
+            }
+            let end = col + colspan;
+            if pending.len() < end {
+                pending.resize(end, 0);
+            }
+            for slot in &mut pending[col..end] {
+                *slot = rowspan;
+            }
+            col = end;
+        }
+        // Columns to the right that are only occupied by spans from above
+        let mut width = col;
+        while width < pending.len() && pending[width] > 0 {
+            width += 1;
+        }
+        // Columns occupied by spans from above but to the left of the last cell
+        // are already inside `width`; count every occupied column exactly once.
+        let occupied = pending.iter().take(width).filter(|p| **p > 0).count().max(width);
+
+        for slot in &mut pending {
+            *slot = slot.saturating_sub(1);
+        }
+
+        match expected {
+            None => expected = Some(occupied),
+            Some(e) if e != occupied => return Some((row_idx, occupied, e)),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Validate `RowSpan` and `ColSpan` attribute values on a TH or TD cell.

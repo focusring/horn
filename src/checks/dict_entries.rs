@@ -66,25 +66,25 @@ fn check_parent_tree(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
 
         if let Some(resolved_obj) = resolved {
             if let Ok(d) = resolved_obj.as_dict() {
-                results.push(pass("07-001", "StructTreeRoot contains /ParentTree"));
+                results.push(pass("01-x03", "StructTreeRoot contains /ParentTree"));
                 Some(d)
             } else {
                 results.push(fail(
-                    "07-001",
+                    "01-x03",
                     "StructTreeRoot /ParentTree is not a valid dictionary (number tree)",
                 ));
                 None
             }
         } else {
             results.push(fail(
-                "07-001",
+                "01-x03",
                 "StructTreeRoot /ParentTree reference cannot be resolved",
             ));
             None
         }
     } else {
         results.push(fail(
-            "07-001",
+            "01-x03",
             "StructTreeRoot missing /ParentTree — MCIDs cannot be mapped to structure",
         ));
         None
@@ -138,7 +138,7 @@ fn check_parent_tree_completeness(
     if !missing.is_empty() {
         for idx in &missing {
             results.push(fail(
-                "07-001",
+                "01-x03",
                 &format!("Page with /StructParents {idx} has no corresponding ParentTree entry"),
             ));
         }
@@ -220,16 +220,16 @@ fn check_suspects_flag(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
             let suspects = val.as_bool().or_else(|_| val.as_i64().map(|i| i != 0));
             if let Ok(true) = suspects {
                 results.push(fail(
-                    "07-002",
+                    "01-007",
                     "MarkInfo/Suspects is true — tag structure is flagged as unreliable",
                 ));
             } else {
-                results.push(pass("07-002", "MarkInfo/Suspects is false or not set"));
+                results.push(pass("01-007", "MarkInfo/Suspects is false or not set"));
             }
         }
         Err(_) => {
             // /Suspects absent — this is fine
-            results.push(pass("07-002", "MarkInfo/Suspects is not set (acceptable)"));
+            results.push(pass("01-007", "MarkInfo/Suspects is not set (acceptable)"));
         }
     }
 }
@@ -260,7 +260,7 @@ fn check_unmapped_types(doc: &mut HornDocument, results: &mut Vec<CheckResult>) 
 
     if unmapped_types.is_empty() {
         results.push(pass(
-            "07-003",
+            "02-001",
             "All structure element types are standard or have role map entries",
         ));
     } else {
@@ -269,7 +269,7 @@ fn check_unmapped_types(doc: &mut HornDocument, results: &mut Vec<CheckResult>) 
         unmapped_types.dedup();
         for type_name in &unmapped_types {
             results.push(fail(
-                "07-003",
+                "02-001",
                 &format!(
                     "Structure element type /{type_name} is non-standard and has no RoleMap entry"
                 ),
@@ -439,8 +439,8 @@ fn check_reference_xobjects(doc: &mut HornDocument, results: &mut Vec<CheckResul
             if has_ref {
                 let name_str = String::from_utf8_lossy(name);
                 results.push(CheckResult {
-                    rule_id: "25-001".to_string(),
-                    checkpoint: 25,
+                    rule_id: "30-001".to_string(),
+                    checkpoint: 30,
                     description: format!(
                         "Page {page_num}: Form XObject /{name_str} is a reference XObject (/Ref)"
                     ),

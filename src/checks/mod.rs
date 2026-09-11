@@ -4,6 +4,7 @@ pub mod baseline;
 pub mod content_stream;
 pub mod dict_entries;
 pub mod embedded_files;
+pub mod file_syntax;
 pub mod fonts;
 pub mod headings;
 pub mod images;
@@ -59,6 +60,7 @@ impl CheckRegistry {
     /// Create a registry with all built-in checks.
     pub fn new() -> Self {
         let checks: Vec<Box<dyn Check>> = vec![
+            Box::new(file_syntax::FileSyntaxChecks),
             Box::new(baseline::BaselineCheck),
             Box::new(metadata::MetadataChecks),
             Box::new(version::VersionChecks),

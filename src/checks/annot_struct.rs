@@ -130,7 +130,7 @@ impl Check for AnnotStructChecks {
                 if subtype == b"PrinterMark" {
                     if objr_map.contains_key(&annot_id) {
                         results.push(annot_fail(
-                            "28-007", *page_num,
+                            "28-017", *page_num,
                             &format!("PrinterMark annotation (obj {}.{}) has OBJR in structure tree — must be artifact only", annot_id.0, annot_id.1),
                             "/PrinterMark",
                         ));
@@ -181,11 +181,16 @@ impl Check for AnnotStructChecks {
                 } else {
                     unlinked_annots += 1;
                     let type_name = String::from_utf8_lossy(subtype);
+                    let (rule, expected) = match subtype {
+                        b"Widget" => ("28-010", "Form"),
+                        b"Link" => ("28-011", "Link"),
+                        _ => ("28-002", "Annot"),
+                    };
                     results.push(annot_fail(
-                        "28-002",
+                        rule,
                         *page_num,
                         &format!(
-                            "/{type_name} annotation (obj {}.{}) has no OBJR in the structure tree",
+                            "/{type_name} annotation (obj {}.{}) has no OBJR in the structure tree — must be nested in a /{expected} structure element",
                             annot_id.0, annot_id.1
                         ),
                         &format!("/{type_name}"),
@@ -314,10 +319,10 @@ fn check_objr_parent_type(
 ) {
     let resolved_type = resolve_role(&info.parent_type, role_map);
 
-    let expected = match subtype {
-        b"Link" => b"Link" as &[u8],
-        b"Widget" => b"Form",
-        _ => b"Annot",
+    let (expected, rule) = match subtype {
+        b"Link" => (b"Link" as &[u8], "28-011"),
+        b"Widget" => (b"Form" as &[u8], "28-010"),
+        _ => (b"Annot" as &[u8], "28-002"),
     };
 
     if resolved_type != expected {
@@ -325,7 +330,7 @@ fn check_objr_parent_type(
         let subtype_str = String::from_utf8_lossy(subtype);
         let expected_str = String::from_utf8_lossy(expected);
         results.push(annot_fail(
-            "28-003", page_num,
+            rule, page_num,
             &format!(
                 "/{subtype_str} annotation is under /{parent_str} struct elem — should be under /{expected_str}"
             ),
@@ -364,10 +369,22 @@ fn check_annot_accessible_text(
                 || has_inherited_flag_hidden(doc, annot_dict, 10);
             let has_appearance = annot_dict.get(b"AP").is_ok();
             if !is_hidden && has_appearance && !is_zero_size_rect(annot_dict) {
-                let has_tu = has_inherited_key(doc, annot_dict, b"TU", 10);
+                // /TU is a *field* dictionary entry (ISO 32000-1 Table 220). When the
+                // widget is a pure annotation kid (no /T, /FT or /Kids of its own) the
+                // field is its /Parent, so a /TU on the widget itself does not count.
+                let is_pure_widget = annot_dict.get(b"Parent").is_ok()
+                    && annot_dict.get(b"T").is_err()
+                    && annot_dict.get(b"FT").is_err()
+                    && annot_dict.get(b"Kids").is_err();
+                let field_dict = if is_pure_widget {
+                    resolve_dict(doc, annot_dict.get(b"Parent").ok()).unwrap_or(annot_dict)
+                } else {
+                    annot_dict
+                };
+                let has_tu = has_inherited_key(doc, field_dict, b"TU", 10);
                 if !has_tu && !info.parent_has_alt {
                     results.push(annot_fail(
-                        "28-009",
+                        "28-005",
                         page_num,
                         "Form field has no /TU (tooltip) and Form struct elem has no /Alt",
                         "/Widget",
@@ -384,7 +401,7 @@ fn check_annot_accessible_text(
                 .is_some_and(|s| !s.is_empty());
             if !has_contents {
                 results.push(annot_fail(
-                    "28-006",
+                    "28-012",
                     page_num,
                     "Link annotation missing non-empty /Contents for accessible link text",
                     "/Link",
@@ -417,7 +434,7 @@ fn check_annot_accessible_text(
                 {
                     let type_str = String::from_utf8_lossy(subtype);
                     results.push(annot_fail(
-                            "28-006", page_num,
+                            "28-004", page_num,
                             &format!(
                                 "/{type_str} annotation has no /Contents and Annot struct elem has no /Alt"
                             ),
@@ -484,7 +501,7 @@ fn check_screen_annotation(
     // Check /CT (content type) on media clip
     if clip_dict.get(b"CT").is_err() {
         results.push(annot_fail(
-            "28-005",
+            "28-014",
             page_num,
             "Screen annotation media clip missing /CT (content type)",
             "/Screen",
@@ -504,7 +521,7 @@ fn check_screen_annotation(
                     .any(|(_, item)| item.as_str().ok().is_some_and(|s| !s.is_empty()));
                 if !has_nonempty_text {
                     results.push(annot_fail(
-                        "28-006",
+                        "28-015",
                         page_num,
                         "Screen annotation media clip /Alt has no non-empty text entries",
                         "/Screen",
@@ -514,7 +531,7 @@ fn check_screen_annotation(
         }
         Err(_) => {
             results.push(annot_fail(
-                "28-006",
+                "28-015",
                 page_num,
                 "Screen annotation media clip missing /Alt array",
                 "/Screen",
@@ -553,7 +570,7 @@ fn check_file_attachment(
 
     if !has_filename {
         results.push(annot_fail(
-            "28-008",
+            "28-016",
             page_num,
             "FileAttachment FileSpec missing or has empty /F entry",
             "/FileAttachment",
@@ -569,11 +586,23 @@ fn check_file_attachment(
 
     if !has_unicode_filename {
         results.push(annot_fail(
-            "28-008",
+            "28-016",
             page_num,
             "FileAttachment FileSpec missing or has empty /UF entry",
             "/FileAttachment",
         ));
+    }
+}
+
+/// Resolve an object (direct dictionary or reference) to a dictionary.
+fn resolve_dict<'a>(
+    doc: &'a lopdf::Document,
+    obj: Option<&'a lopdf::Object>,
+) -> Option<&'a lopdf::Dictionary> {
+    match obj? {
+        lopdf::Object::Reference(ref_id) => doc.get_object(*ref_id).ok()?.as_dict().ok(),
+        lopdf::Object::Dictionary(d) => Some(d),
+        _ => None,
     }
 }
 

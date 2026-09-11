@@ -7,9 +7,10 @@ use lopdf::content::Content;
 /// Content stream analysis checks.
 ///
 /// Parses PDF page content streams to detect:
-/// - 01-001: Content not wrapped in marked content sequences (untagged text/images)
-/// - 01-005: Artifact content nested inside tagged content
-/// - 30-001: Form `XObjects` not properly tagged
+/// - 01-003: Artifact content nested inside tagged content
+/// - 01-004: Tagged content nested inside Artifact content
+/// - 01-005: Content not wrapped in marked content sequences (untagged text/images)
+/// - 31-030: Text showing operators that reference the .notdef glyph (CID 0)
 pub struct ContentStreamChecks;
 
 impl Check for ContentStreamChecks {
@@ -34,6 +35,7 @@ impl Check for ContentStreamChecks {
         let mut untagged_text_ops = 0u32;
         let mut untagged_xobject_ops = 0u32;
         let mut artifact_in_tagged = 0u32;
+        let mut tagged_in_artifact = 0u32;
         let mut notdef_usage = 0u32;
         let mut pages_analyzed = 0u32;
 
@@ -54,14 +56,15 @@ impl Check for ContentStreamChecks {
             untagged_text_ops += page_result.untagged_text_ops;
             untagged_xobject_ops += page_result.untagged_xobject_ops;
             artifact_in_tagged += page_result.artifact_inside_tagged;
+            tagged_in_artifact += page_result.tagged_inside_artifact;
             notdef_usage += page_result.notdef_glyph_usage;
         }
 
-        // 01-001: Untagged content detection
+        // 01-005: Untagged content detection
         if total_text_ops > 0 {
             if untagged_text_ops > 0 {
                 results.push(CheckResult {
-                    rule_id: "01-001".to_string(),
+                    rule_id: "01-005".to_string(),
                     checkpoint: 1,
                     description: format!(
                         "{untagged_text_ops} of {total_text_ops} text operation(s) are outside marked content"
@@ -76,7 +79,7 @@ impl Check for ContentStreamChecks {
                 });
             } else {
                 results.push(CheckResult {
-                    rule_id: "01-001".to_string(),
+                    rule_id: "01-005".to_string(),
                     checkpoint: 1,
                     description: "All text content is inside marked content sequences".to_string(),
                     severity: Severity::Info,
@@ -85,10 +88,10 @@ impl Check for ContentStreamChecks {
             }
         }
 
-        // 01-002: Untagged XObject (image/form) invocations
+        // 01-005: Untagged XObject (image/form) invocations
         if untagged_xobject_ops > 0 {
             results.push(CheckResult {
-                rule_id: "01-002".to_string(),
+                rule_id: "01-005".to_string(),
                 checkpoint: 1,
                 description: format!(
                     "{untagged_xobject_ops} XObject invocation(s) are outside marked content"
@@ -103,10 +106,10 @@ impl Check for ContentStreamChecks {
             });
         }
 
-        // 31-025: .notdef glyph usage (CID 0 / \x00\x00 in text strings)
+        // 31-030: .notdef glyph usage (CID 0 / \x00\x00 in text strings)
         if notdef_usage > 0 {
             results.push(CheckResult {
-                rule_id: "31-025".to_string(),
+                rule_id: "31-030".to_string(),
                 checkpoint: 31,
                 description: format!(
                     "{notdef_usage} text operation(s) reference the .notdef glyph (CID 0)"
@@ -121,10 +124,28 @@ impl Check for ContentStreamChecks {
             });
         }
 
-        // 01-005: Artifact content inside tagged content
+        // 01-004: Tagged content inside Artifact content
+        if tagged_in_artifact > 0 {
+            results.push(CheckResult {
+                rule_id: "01-004".to_string(),
+                checkpoint: 1,
+                description: format!(
+                    "{tagged_in_artifact} tagged marked-content sequence(s) found nested inside Artifact content"
+                ),
+                severity: Severity::Error,
+                outcome: CheckOutcome::Fail {
+                    message: format!(
+                        "{tagged_in_artifact} BDC sequence(s) with an MCID are nested inside /Artifact marked content — real content must not be inside artifacts"
+                    ),
+                    location: None,
+                },
+            });
+        }
+
+        // 01-003: Artifact content inside tagged content
         if artifact_in_tagged > 0 {
             results.push(CheckResult {
-                rule_id: "01-005".to_string(),
+                rule_id: "01-003".to_string(),
                 checkpoint: 1,
                 description: format!(
                     "{artifact_in_tagged} Artifact marker(s) found nested inside tagged content"
@@ -148,6 +169,7 @@ struct PageAnalysis {
     untagged_text_ops: u32,
     untagged_xobject_ops: u32,
     artifact_inside_tagged: u32,
+    tagged_inside_artifact: u32,
     notdef_glyph_usage: u32,
 }
 
@@ -158,17 +180,22 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
         untagged_text_ops: 0,
         untagged_xobject_ops: 0,
         artifact_inside_tagged: 0,
+        tagged_inside_artifact: 0,
         notdef_glyph_usage: 0,
     };
 
     // Track marked content nesting.
     // mc_stack entries: true = MCID-bearing tagged sequence, false = other
     let mut mc_stack: Vec<bool> = Vec::new();
+    // Parallel stack tracking which open sequences are /Artifact
+    let mut artifact_stack: Vec<bool> = Vec::new();
     for op in ops {
         match op.operator.as_str() {
             "BMC" => {
                 // BMC has no properties dict, so no MCID — just push as non-tagged
+                let tag = op.operands.first().and_then(|o| o.as_name().ok());
                 mc_stack.push(false);
+                artifact_stack.push(tag == Some(b"Artifact"));
             }
             "BDC" => {
                 let tag = op
@@ -188,15 +215,22 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
                     }
                 });
 
-                // Only flag artifact-in-tagged when nested inside MCID-bearing content
+                // 01-003: only flag artifact-in-tagged when nested inside MCID-bearing content
                 if is_artifact && mc_stack.iter().any(|m| *m) {
                     result.artifact_inside_tagged += 1;
                 }
 
+                // 01-004: tagged (MCID-bearing) content nested inside an Artifact
+                if has_mcid && !is_artifact && artifact_stack.iter().any(|a| *a) {
+                    result.tagged_inside_artifact += 1;
+                }
+
                 mc_stack.push(has_mcid && !is_artifact);
+                artifact_stack.push(is_artifact);
             }
             "EMC" => {
                 mc_stack.pop();
+                artifact_stack.pop();
             }
 
             // Text showing operators
@@ -294,7 +328,7 @@ fn check_reference_xobjects(doc: &lopdf::Document, results: &mut Vec<CheckResult
 
         if is_form && dict.get(b"Ref").is_ok() {
             results.push(CheckResult {
-                rule_id: "30-002".to_string(),
+                rule_id: "30-001".to_string(),
                 checkpoint: 30,
                 description: "Reference XObject found — forbidden in PDF/UA".to_string(),
                 severity: Severity::Error,
