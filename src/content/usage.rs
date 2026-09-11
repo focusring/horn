@@ -56,14 +56,15 @@ pub fn collect_content_usage(doc: &Document) -> ContentUsage {
         xobject_uses: HashMap::new(),
         artifact_sequences: 0,
         cmaps: HashMap::new(),
-        visited_forms: HashSet::new(),
+        active_forms: HashSet::new(),
+        form_walks: HashMap::new(),
     };
 
     for (_, page_id) in doc.get_pages() {
         let Ok(page) = doc.get_dictionary(page_id) else {
             continue;
         };
-        let resources = resolve_dict(doc, page.get(b"Resources").ok());
+        let resources = page_resources(doc, page_id);
         let content = doc.get_page_content(page_id);
         walker.walk_stream(&content, resources, 0);
 
@@ -107,7 +108,32 @@ struct Walker<'a> {
     artifact_sequences: u32,
     /// Parsed encoding `CMaps` per Type 0 font (None = cannot split reliably).
     cmaps: HashMap<ObjectId, Option<EncodingCMap>>,
-    visited_forms: HashSet<ObjectId>,
+    /// Forms on the current recursion path (cycle guard).
+    active_forms: HashSet<ObjectId>,
+    /// How many times each form has been walked; a form painted from many
+    /// places is walked at most `MAX_FORM_WALKS` times.
+    form_walks: HashMap<ObjectId, u32>,
+}
+
+/// Upper bound on how often the same Form `XObject` is re-walked when it is
+/// painted from several places (each paint is still counted).
+const MAX_FORM_WALKS: u32 = 4;
+
+/// The effective `/Resources` of a page: its own entry or the nearest one
+/// inherited from a parent `Pages` node (ISO 32000-1, 7.7.3.4).
+pub fn page_resources(doc: &Document, page_id: ObjectId) -> Option<&Dictionary> {
+    let mut node = doc.get_dictionary(page_id).ok()?;
+    let mut seen = HashSet::new();
+    loop {
+        if let Some(res) = resolve_dict(doc, node.get(b"Resources").ok()) {
+            return Some(res);
+        }
+        let parent_id = node.get(b"Parent").ok()?.as_reference().ok()?;
+        if !seen.insert(parent_id) || seen.len() > 64 {
+            return None;
+        }
+        node = doc.get_dictionary(parent_id).ok()?;
+    }
 }
 
 #[derive(Clone)]
@@ -151,16 +177,25 @@ impl Walker<'_> {
             return;
         }
         if let Some(id) = id {
-            if !self.visited_forms.insert(id) {
+            // Recursive re-entry (a form painting itself) is never followed
+            if self.active_forms.contains(&id) {
                 return;
             }
+            let walks = self.form_walks.entry(id).or_insert(0);
+            if *walks >= MAX_FORM_WALKS {
+                return;
+            }
+            *walks += 1;
+            self.active_forms.insert(id);
         }
         let resources =
             resolve_dict(self.doc, stream.dict.get(b"Resources").ok()).or(parent_resources);
-        let Ok(data) = stream.decompressed_content() else {
-            return;
-        };
-        self.walk_stream(&data, resources, depth + 1);
+        if let Ok(data) = stream.decompressed_content() {
+            self.walk_stream(&data, resources, depth + 1);
+        }
+        if let Some(id) = id {
+            self.active_forms.remove(&id);
+        }
     }
 
     fn walk_stream(&mut self, data: &[u8], resources: Option<&Dictionary>, depth: usize) {

@@ -14,7 +14,7 @@ impl Check for ListChecks {
     }
 
     fn checkpoint(&self) -> u8 {
-        16
+        9
     }
 
     fn rules(&self) -> &'static [&'static str] {
@@ -49,7 +49,7 @@ impl Check for ListChecks {
         if list_count > 0 && !errors_found {
             results.push(CheckResult {
                 rule_id: "09-005".to_string(),
-                checkpoint: 16,
+                checkpoint: 9,
                 description: format!("All {list_count} list(s) have valid L/LI structure"),
                 severity: Severity::Info,
                 outcome: CheckOutcome::Pass,
@@ -93,7 +93,7 @@ fn check_lists(
                 *errors_found = true;
                 results.push(CheckResult {
                     rule_id: "09-005".to_string(),
-                    checkpoint: 16,
+                    checkpoint: 9,
                     description: format!("{list_label}: List has no LI (list item) children"),
                     severity: Severity::Error,
                     outcome: CheckOutcome::Fail {
@@ -111,7 +111,7 @@ fn check_lists(
                     .collect();
                 results.push(CheckResult {
                     rule_id: "09-005".to_string(),
-                    checkpoint: 16,
+                    checkpoint: 9,
                     description: format!(
                         "{list_label}: L contains non-LI children: {}",
                         types.join(", ")
@@ -176,7 +176,7 @@ fn check_li_structure(
                     *errors_found = true;
                     results.push(CheckResult {
                         rule_id: "09-005".to_string(),
-                        checkpoint: 16,
+                        checkpoint: 9,
                         description: format!("{list_label}, item {li_index}: LI missing LBody"),
                         severity: Severity::Error,
                         outcome: CheckOutcome::Fail {

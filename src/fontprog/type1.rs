@@ -42,9 +42,14 @@ impl Type1Font {
         };
         let private = decrypt(&bin, EEXEC_R, 4);
 
-        let len_iv = find(&private, b"/lenIV")
-            .and_then(|p| parse_int_after(&private, p + 6))
-            .unwrap_or(4);
+        // /lenIV: number of random leading bytes in each charstring (default 4);
+        // -1 means the charstrings are not encrypted at all.
+        let len_iv: Option<usize> =
+            match find(&private, b"/lenIV").and_then(|p| parse_signed_int_after(&private, p + 6)) {
+                Some(-1) => None,
+                Some(v) if v >= 0 => usize::try_from(v).ok(),
+                _ => Some(4),
+            };
 
         let mut font = Self {
             charstrings: Vec::new(),
@@ -130,17 +135,14 @@ impl Type1Font {
         self.builtin_encoding = Some(map);
     }
 
-    fn parse_charstrings(&mut self, private: &[u8], len_iv: usize) -> Option<()> {
+    fn parse_charstrings(&mut self, private: &[u8], len_iv: Option<usize>) -> Option<()> {
         // Skip past /Subrs binary data safely: scan for `/CharStrings` while honouring
         // `<len> RD ` / `<len> -| ` binary runs so binary bytes cannot be mistaken
         // for tokens.
         let cs_pos = find_token_outside_binary(private, b"/CharStrings")?;
         let mut pos = cs_pos + 12;
         // Entries: /name len RD <bin> ND  (until `end`)
-        loop {
-            let Some(slash) = find(&private[pos..], b"/") else {
-                break;
-            };
+        while let Some(slash) = find(&private[pos..], b"/") {
             let name_start = pos + slash + 1;
             let mut name_end = name_start;
             while name_end < private.len()
@@ -163,12 +165,19 @@ impl Type1Font {
                 p += 1;
             }
             p += 1; // single space after RD
-            let Some(bin) = private.get(p..p + len) else {
+            let Some(end) = p.checked_add(len) else {
                 break;
             };
-            let cs = decrypt(bin, CHARSTRING_R, len_iv);
+            let Some(bin) = private.get(p..end) else {
+                break;
+            };
+            let cs = match len_iv {
+                // lenIV -1: charstrings are stored unencrypted
+                None => bin.to_vec(),
+                Some(skip) => decrypt(bin, CHARSTRING_R, skip),
+            };
             self.charstrings.push((name, cs));
-            pos = p + len;
+            pos = end;
             // Stop at `end`
             let lookahead = &private[pos..(pos + 64).min(private.len())];
             let la = String::from_utf8_lossy(lookahead);
@@ -356,8 +365,18 @@ fn parse_int_from(data: &[u8], mut pos: usize) -> Option<(usize, usize)> {
     Some((v, pos))
 }
 
-fn parse_int_after(data: &[u8], pos: usize) -> Option<usize> {
-    parse_int_from(data, pos).map(|(v, _)| v)
+/// Parse an optionally negative ASCII integer starting at `pos` (after whitespace).
+fn parse_signed_int_after(data: &[u8], mut pos: usize) -> Option<i64> {
+    while pos < data.len() && data[pos].is_ascii_whitespace() {
+        pos += 1;
+    }
+    let negative = data.get(pos) == Some(&b'-');
+    if negative {
+        pos += 1;
+    }
+    let (v, _) = parse_int_from(data, pos)?;
+    let v = i64::try_from(v).ok()?;
+    Some(if negative { -v } else { v })
 }
 
 #[cfg(test)]

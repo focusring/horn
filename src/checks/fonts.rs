@@ -233,15 +233,8 @@ fn check_encoding_differences(
         // TrueType fonts should have an /Encoding entry for proper character mapping.
         // Without it, glyphs can't be reliably mapped to Unicode.
         if subtype.as_deref() == Some(b"TrueType") {
-            // Check if it's a symbolic font (Flags bit 3 set in FontDescriptor)
-            let is_symbolic = font_dict
-                .get_deref(b"FontDescriptor", doc)
-                .ok()
-                .and_then(|o| o.as_dict().ok())
-                .and_then(|d| d.get(b"Flags").ok())
-                .and_then(|o| o.as_i64().ok())
-                .is_some_and(|flags| flags & 0x04 != 0); // bit 3 = symbolic
-            if !is_symbolic {
+            // Symbolic fonts (Flags bit 3 set, bit 6 clear) are exempt
+            if !is_symbolic_font(doc, font_dict) {
                 results.push(CheckResult {
                     rule_id: "31-019".to_string(),
                     checkpoint: 31,

@@ -32,7 +32,7 @@ pub fn write_junit(report: &ValidationReport, w: &mut dyn Write) -> Result<()> {
         )?;
 
         if let Some(error) = &file_report.error {
-            writeln!(w, r#"    <testcase name="parse" classname="{suite_name}">"#,)?;
+            writeln!(w, r#"    <testcase name="parse" classname="{suite_name}">"#)?;
             writeln!(
                 w,
                 r#"      <error message="{}">{}</error>"#,
@@ -76,7 +76,7 @@ pub fn write_junit(report: &ValidationReport, w: &mut dyn Write) -> Result<()> {
                 }
                 CheckOutcome::NeedsReview { reason } => {
                     writeln!(w, ">")?;
-                    writeln!(w, r"      <system-out>{}</system-out>", xml_escape(reason),)?;
+                    writeln!(w, r"      <system-out>{}</system-out>", xml_escape(reason))?;
                     writeln!(w, "    </testcase>")?;
                 }
                 _ => {

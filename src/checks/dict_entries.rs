@@ -18,7 +18,7 @@ impl Check for DictEntryChecks {
     }
 
     fn checkpoint(&self) -> u8 {
-        7
+        1
     }
 
     fn rules(&self) -> &'static [&'static str] {
@@ -427,7 +427,7 @@ fn check_reference_xobjects(doc: &mut HornDocument, results: &mut Vec<CheckResul
 fn pass(rule_id: &str, description: &str) -> CheckResult {
     CheckResult {
         rule_id: rule_id.to_string(),
-        checkpoint: 7,
+        checkpoint: crate::checks::checkpoint_of(rule_id),
         description: description.to_string(),
         severity: Severity::Info,
         outcome: CheckOutcome::Pass,
@@ -437,7 +437,7 @@ fn pass(rule_id: &str, description: &str) -> CheckResult {
 fn fail(rule_id: &str, message: &str) -> CheckResult {
     CheckResult {
         rule_id: rule_id.to_string(),
-        checkpoint: 7,
+        checkpoint: crate::checks::checkpoint_of(rule_id),
         description: message.to_string(),
         severity: Severity::Error,
         outcome: CheckOutcome::Fail {

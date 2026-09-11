@@ -10,7 +10,7 @@
 
 Open-source PDF/UA accessibility checker based on the Matterhorn Protocol.
 
-Horn validates PDF files against PDF/UA-1 (ISO 14289-1) and covers **all 136 failure conditions of the [Matterhorn Protocol 1.1](https://pdfa.org/resource/the-matterhorn-protocol/)**: the 87 machine-checkable conditions are implemented as automated checks and the 48 human-judgment conditions are reported as manual-review items. Every finding carries the official Matterhorn index (e.g. `28-010`). Horn scores 100% on the [veraPDF PDF/UA-1 test corpus](https://github.com/veraPDF/veraPDF-corpus) (297 files) and passes the PDF Association's PDF/UA-1 Reference Suite. It is designed as a cross-platform, CI/CD-ready alternative to [PAC 2024](https://pac.pdf-accessibility.org/).
+Horn validates PDF files against PDF/UA-1 (ISO 14289-1) and covers **every failure condition of the [Matterhorn Protocol 1.1](https://pdfa.org/resource/the-matterhorn-protocol/)** (137 index entries): the 87 machine-checkable conditions are implemented as automated checks, the 48 human-judgment conditions are reported as manual-review items, and the 2 without a defined test are reported as not applicable. Every finding carries the official Matterhorn index (e.g. `28-010`). Horn scores 100% on the [veraPDF PDF/UA-1 test corpus](https://github.com/veraPDF/veraPDF-corpus) (297 files) and passes the PDF Association's PDF/UA-1 Reference Suite. It is designed as a cross-platform, CI/CD-ready alternative to [PAC 2024](https://pac.pdf-accessibility.org/).
 
 ## Features
 

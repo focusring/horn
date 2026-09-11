@@ -24,7 +24,7 @@ This means simple PDFs are validated extremely quickly, while complex documents 
 
 ## Matterhorn Protocol
 
-The [Matterhorn Protocol](https://pdfa.org/resource/the-matterhorn-protocol/) defines 136 failure conditions across 31 checkpoints for PDF/UA-1. Horn covers all 136 conditions: the 87 machine-checkable ones are automated and the 48 human-judgment ones are reported as manual-review items, with every finding carrying the official Matterhorn index. Its 25 check modules cover, among others:
+The [Matterhorn Protocol](https://pdfa.org/resource/the-matterhorn-protocol/) defines 136 failure conditions across 31 checkpoints for PDF/UA-1. Horn covers every condition in the protocol's tables (137 index entries in version 1.1, which added 13-008): the 87 machine-checkable ones are automated, the 48 human-judgment ones are reported as manual-review items and the 2 without a defined test are reported as not applicable, with every finding carrying the official Matterhorn index. Its 25 check modules cover, among others:
 
 - Document metadata and language
 - Structure tree and tagging

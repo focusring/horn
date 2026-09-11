@@ -72,11 +72,11 @@ impl CffFont {
             .and_then(|v| v.first())
             .map_or(2, |v| *v as i32);
 
-        let charstrings_off = usize_op(&top, 17)?;
+        let charstrings_off = usize_op(&top, 17, data.len())?;
         let (charstrings, _) = read_index(data, charstrings_off)?;
         let glyph_count = charstrings.len();
 
-        let charset_off = usize_op(&top, 15).unwrap_or(0);
+        let charset_off = usize_op(&top, 15, data.len()).unwrap_or(0);
         let charset = parse_charset(data, charset_off, glyph_count);
         let font_matrix_scale = top
             .get(&0x0c07)
@@ -84,7 +84,7 @@ impl CffFont {
             .copied()
             .filter(|a| *a > 0.0)
             .unwrap_or(0.001);
-        let encoding_off = usize_op(&top, 16).unwrap_or(0);
+        let encoding_off = usize_op(&top, 16, data.len()).unwrap_or(0);
         let encoding = if is_cid {
             None
         } else {
@@ -94,13 +94,13 @@ impl CffFont {
         let mut privates = Vec::new();
         let mut fd_select = Vec::new();
         if is_cid {
-            let fdarray_off = usize_op(&top, 0x0c24)?;
+            let fdarray_off = usize_op(&top, 0x0c24, data.len())?;
             let (fdicts, _) = read_index(data, fdarray_off)?;
             for fd in &fdicts {
                 let fd_dict = parse_dict(fd);
                 privates.push(read_private(data, &fd_dict));
             }
-            if let Some(fdselect_off) = usize_op(&top, 0x0c25) {
+            if let Some(fdselect_off) = usize_op(&top, 0x0c25, data.len()) {
                 fd_select = parse_fd_select(data, fdselect_off, glyph_count);
             }
         } else {
@@ -163,8 +163,11 @@ impl CffFont {
         if self.is_cid {
             return None;
         }
-        (0..self.glyph_count)
-            .find(|&gid| self.glyph_name(gid).is_some_and(|n| n.as_bytes() == name))
+        // Compare raw SID bytes: no allocation per examined glyph.
+        self.charset
+            .iter()
+            .take(self.glyph_count)
+            .position(|sid| self.sid_bytes(usize::from(*sid)) == Some(name))
     }
 
     /// CID of a GID (CID-keyed fonts). For name-keyed fonts the GID is returned.
@@ -224,12 +227,18 @@ impl CffFont {
     }
 
     fn sid_to_string(&self, sid: usize) -> Option<String> {
+        self.sid_bytes(sid)
+            .map(|b| String::from_utf8_lossy(b).into_owned())
+    }
+
+    /// Raw bytes of a string id (standard strings or the String INDEX).
+    fn sid_bytes(&self, sid: usize) -> Option<&[u8]> {
         if sid < STANDARD_STRINGS.len() {
-            Some(STANDARD_STRINGS[sid].to_string())
+            Some(STANDARD_STRINGS[sid].as_bytes())
         } else {
             self.strings
                 .get(sid - STANDARD_STRINGS.len())
-                .map(|s| String::from_utf8_lossy(s).into_owned())
+                .map(Vec::as_slice)
         }
     }
 }
@@ -253,14 +262,14 @@ fn read_index(data: &[u8], pos: usize) -> Option<(Vec<Vec<u8>>, usize)> {
     let data_start = offsets_start + (count + 1) * off_size - 1;
     let mut items = Vec::with_capacity(count);
     for i in 0..count {
-        let a = data_start + read_off(i)?;
-        let b = data_start + read_off(i + 1)?;
+        let a = data_start.checked_add(read_off(i)?)?;
+        let b = data_start.checked_add(read_off(i + 1)?)?;
         if a > b {
             return None;
         }
         items.push(data.get(a..b)?.to_vec());
     }
-    let end = data_start + read_off(count)?;
+    let end = data_start.checked_add(read_off(count)?)?;
     Some((items, end))
 }
 
@@ -344,9 +353,14 @@ fn parse_dict(data: &[u8]) -> HashMap<u16, Vec<f64>> {
     dict
 }
 
-fn usize_op(dict: &HashMap<u16, Vec<f64>>, op: u16) -> Option<usize> {
+/// A DICT operand used as an offset into the font data. Values outside
+/// `0..=len` are rejected so callers can never overflow when adding to them.
+fn usize_op(dict: &HashMap<u16, Vec<f64>>, op: u16, len: usize) -> Option<usize> {
     let v = *dict.get(&op)?.first()?;
-    (v >= 0.0).then_some(v as usize)
+    if v.is_nan() || v < 0.0 || v > len as f64 {
+        return None;
+    }
+    Some(v as usize)
 }
 
 fn read_private(data: &[u8], dict: &HashMap<u16, Vec<f64>>) -> PrivateDict {
@@ -354,18 +368,25 @@ fn read_private(data: &[u8], dict: &HashMap<u16, Vec<f64>>) -> PrivateDict {
     let Some(entry) = dict.get(&18) else {
         return private;
     };
-    if entry.len() < 2 || entry[0] < 0.0 || entry[1] < 0.0 {
+    let len = data.len() as f64;
+    if entry.len() < 2 || !(0.0..=len).contains(&entry[0]) || !(0.0..=len).contains(&entry[1]) {
         return private;
     }
     let (size, offset) = (entry[0] as usize, entry[1] as usize);
-    let Some(bytes) = data.get(offset..offset + size) else {
+    let Some(bytes) = offset
+        .checked_add(size)
+        .and_then(|end| data.get(offset..end))
+    else {
         return private;
     };
     let pd = parse_dict(bytes);
     private.default_width_x = pd.get(&20).and_then(|v| v.first()).copied().unwrap_or(0.0);
     private.nominal_width_x = pd.get(&21).and_then(|v| v.first()).copied().unwrap_or(0.0);
-    if let Some(subrs_off) = usize_op(&pd, 19) {
-        if let Some((subrs, _)) = read_index(data, offset + subrs_off) {
+    if let Some(subrs_off) = usize_op(&pd, 19, data.len()) {
+        if let Some((subrs, _)) = offset
+            .checked_add(subrs_off)
+            .and_then(|p| read_index(data, p))
+        {
             private.subrs = subrs;
         }
     }

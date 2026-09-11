@@ -212,39 +212,48 @@ impl<'a> FontProgram<'a> {
     }
 
     /// Look a code up in a specific TrueType `cmap` subtable.
+    ///
+    /// Returns `Some(0)` when a subtable explicitly maps the code to glyph 0
+    /// (.notdef), so callers can distinguish that from an absent mapping. When
+    /// several matching subtables exist, a non-zero glyph wins.
     pub fn cmap_lookup(&self, platform_id: u16, encoding_id: u16, code: u32) -> Option<u16> {
         let Self::TrueType(face) = self else {
             return None;
         };
         let cmap = face.tables().cmap?;
+        let mut found = None;
         for s in cmap.subtables {
             if s.platform_id.to_u16() == platform_id && s.encoding_id == encoding_id {
                 if let Some(g) = s.glyph_index(code) {
                     if g.0 != 0 {
                         return Some(g.0);
                     }
+                    found = Some(0);
                 }
             }
         }
-        None
+        found
     }
 
-    /// Look a Unicode code point up in any Unicode `cmap` subtable.
+    /// Look a Unicode code point up in any Unicode `cmap` subtable
+    /// (`Some(0)` for an explicit .notdef mapping, see `cmap_lookup`).
     pub fn unicode_lookup(&self, code_point: u32) -> Option<u16> {
         let Self::TrueType(face) = self else {
             return None;
         };
         let cmap = face.tables().cmap?;
+        let mut found = None;
         for s in cmap.subtables {
             if s.is_unicode() {
                 if let Some(g) = s.glyph_index(code_point) {
                     if g.0 != 0 {
                         return Some(g.0);
                     }
+                    found = Some(0);
                 }
             }
         }
-        None
+        found
     }
 
     /// Look a glyph name up via the TrueType `post` table (or CFF charset).

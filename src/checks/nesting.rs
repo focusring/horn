@@ -404,10 +404,10 @@ fn validate_ruby_children(children: &[ChildInfo], results: &mut Vec<CheckResult>
         }
         last_rank = rank;
     }
-    if !children.is_empty() && !children.iter().any(|c| c.elem_type == b"RB") {
+    if !children.iter().any(|c| c.elem_type == b"RB") {
         results.push(fail("09-007", "Ruby element has no RB (base text) child"));
     }
-    if !children.is_empty() && !children.iter().any(|c| c.elem_type == b"RT") {
+    if !children.iter().any(|c| c.elem_type == b"RT") {
         results.push(fail(
             "09-007",
             "Ruby element has no RT (annotation text) child",
@@ -427,7 +427,7 @@ fn validate_warichu_children(children: &[ChildInfo], results: &mut Vec<CheckResu
             ));
         }
     }
-    if !children.is_empty() && !children.iter().any(|c| c.elem_type == b"WT") {
+    if !children.iter().any(|c| c.elem_type == b"WT") {
         results.push(fail("09-008", "Warichu element has no WT (text) child"));
     }
 }

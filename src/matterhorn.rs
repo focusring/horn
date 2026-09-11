@@ -1,10 +1,11 @@
 //! The Matterhorn Protocol 1.1 failure-condition catalogue.
 //!
-//! Every one of the 136 failure conditions (31 checkpoints) published by the PDF
-//! Association in *Matterhorn Protocol 1.1 — PDF/UA Conformance Testing Model*
-//! (2021-04, CC-BY-4.0) is listed here with its official index, PDF/UA-1 clause,
-//! and whether it is machine-checkable (`How::Machine`) or requires human
-//! judgment (`How::Human`).
+//! Every failure condition (31 checkpoints, 137 index entries — the protocol's
+//! introduction still says 136, but version 1.1 added 13-008) published by the
+//! PDF Association in *Matterhorn Protocol 1.1 — PDF/UA Conformance Testing
+//! Model* (2021-04, CC-BY-4.0) is listed here with its official index, PDF/UA-1
+//! clause, and whether it is machine-checkable (`How::Machine`), requires human
+//! judgment (`How::Human`) or has no test defined (`How::None`).
 //!
 //! Horn's checks emit results whose `rule_id` is the official Matterhorn index
 //! (e.g. `"28-010"`). Additional checks that go beyond the protocol use ids of
@@ -364,7 +365,17 @@ pub fn condition(id: &str) -> Option<&'static Condition> {
 /// True for ids of Horn-specific checks that go beyond the Matterhorn Protocol
 /// (`"NN-xNN"`), which never correspond to a published failure condition.
 pub fn is_extension_rule(id: &str) -> bool {
-    id.len() == 6 && id.as_bytes()[3] == b'x'
+    matches!(
+        id.as_bytes(),
+        [
+            b'0'..=b'9',
+            b'0'..=b'9',
+            b'-',
+            b'x',
+            b'0'..=b'9',
+            b'0'..=b'9'
+        ]
+    )
 }
 
 /// Number of machine-checkable conditions in the protocol.
@@ -399,7 +410,12 @@ mod tests {
     #[test]
     fn extension_rule_ids() {
         assert!(is_extension_rule("28-x01"));
+        assert!(is_extension_rule("00-x02"));
         assert!(!is_extension_rule("28-001"));
         assert!(!is_extension_rule("baseline"));
+        assert!(!is_extension_rule("ab-x!?"));
+        assert!(!is_extension_rule("28_x01"));
+        assert!(!is_extension_rule("28-x0"));
+        assert!(!is_extension_rule("28-x011"));
     }
 }

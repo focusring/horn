@@ -1,7 +1,7 @@
 //! Manual-review coverage for the Matterhorn Protocol's human-judgment
 //! failure conditions.
 //!
-//! 48 of the 136 Matterhorn 1.1 failure conditions "usually require human
+//! 48 of the 137 Matterhorn 1.1 failure conditions "usually require human
 //! judgment" (`How::Human`). Software cannot decide them, but a conformance
 //! report is only complete when it lists them, so that a reviewer knows what
 //! still has to be checked by hand — the same idea as PAC's "manual checks".
@@ -9,7 +9,7 @@
 //! This check inspects the document for the features each condition applies
 //! to (tables, lists, annotations, multimedia, JavaScript, …) and emits a
 //! `NeedsReview` result for every applicable human condition and
-//! `NotApplicable` for the rest, so every one of the 136 conditions appears in
+//! `NotApplicable` for the rest, so every one of the 137 conditions appears in
 //! the report exactly once (machine conditions are covered by the other checks).
 
 use crate::checks::Check;
@@ -79,14 +79,15 @@ impl Check for HumanReviewChecks {
     }
 }
 
-/// The 48 human-judgment conditions, every one of which is reported.
-static HUMAN_RULES: [&str; 48] = [
-    "01-001", "01-002", "01-006", "02-002", "03-001", "03-002", "03-003", "04-001", "05-001",
-    "05-002", "05-003", "06-004", "08-001", "08-002", "09-001", "09-002", "09-003", "11-007",
-    "12-001", "13-001", "13-002", "13-003", "13-005", "13-006", "13-007", "13-008", "14-001",
-    "14-004", "14-005", "15-001", "15-002", "15-004", "15-005", "16-001", "16-002", "16-003",
-    "17-001", "18-001", "18-002", "19-001", "19-002", "22-001", "24-001", "28-001", "28-003",
-    "28-013", "29-001", "31-010",
+/// The 48 human-judgment conditions plus the two conditions without a test
+/// (23-001, 27-001); every one of them appears in each report.
+static HUMAN_RULES: [&str; 50] = [
+    "23-001", "27-001", "01-001", "01-002", "01-006", "02-002", "03-001", "03-002", "03-003",
+    "04-001", "05-001", "05-002", "05-003", "06-004", "08-001", "08-002", "09-001", "09-002",
+    "09-003", "11-007", "12-001", "13-001", "13-002", "13-003", "13-005", "13-006", "13-007",
+    "13-008", "14-001", "14-004", "14-005", "15-001", "15-002", "15-004", "15-005", "16-001",
+    "16-002", "16-003", "17-001", "18-001", "18-002", "19-001", "19-002", "22-001", "24-001",
+    "28-001", "28-003", "28-013", "29-001", "31-010",
 ];
 
 /// Document features that decide which human conditions apply.
@@ -152,7 +153,8 @@ impl DocFeatures {
                     }
                 }
             }
-            walk_struct(lopdf, tree, &mut f, 0);
+            let mut visited = std::collections::HashSet::new();
+            walk_struct(lopdf, tree, &mut f, &mut visited, 0);
         }
 
         // Catalog-level features
@@ -470,7 +472,13 @@ impl DocFeatures {
     }
 }
 
-fn walk_struct(doc: &Document, dict: &Dictionary, f: &mut DocFeatures, depth: usize) {
+fn walk_struct(
+    doc: &Document,
+    dict: &Dictionary,
+    f: &mut DocFeatures,
+    visited: &mut std::collections::HashSet<lopdf::ObjectId>,
+    depth: usize,
+) {
     if depth > 100 {
         return;
     }
@@ -494,8 +502,14 @@ fn walk_struct(doc: &Document, dict: &Dictionary, f: &mut DocFeatures, depth: us
     }
     let Ok(kids) = dict.get(b"K") else { return };
     let mut visit = |o: &Object| {
+        // Shared /K references are processed at most once
+        if let Object::Reference(id) = o {
+            if !visited.insert(*id) {
+                return;
+            }
+        }
         if let Some(d) = resolve(doc, o).and_then(|o| o.as_dict().ok()) {
-            walk_struct(doc, d, f, depth + 1);
+            walk_struct(doc, d, f, visited, depth + 1);
         }
     };
     match kids {

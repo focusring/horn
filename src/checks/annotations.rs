@@ -60,7 +60,7 @@ fn check_tab_order(
         return;
     }
 
-    match page.get(b"Tabs") {
+    match page.get_deref(b"Tabs", doc) {
         Ok(obj) => {
             let tabs = obj.as_name().unwrap_or(b"");
             {

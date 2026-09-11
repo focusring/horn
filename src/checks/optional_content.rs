@@ -129,9 +129,9 @@ fn check_config_dict(
 ) {
     match dict.get_deref(b"Name", doc) {
         Ok(name_obj) => {
+            // /Name is a text string (ISO 32000-1 Table 101); a name object is invalid
             let is_empty = match name_obj {
                 lopdf::Object::String(bytes, _) => bytes.is_empty(),
-                lopdf::Object::Name(n) => n.is_empty(),
                 _ => true,
             };
             if is_empty {
@@ -181,7 +181,6 @@ fn check_ocg_names(
         let Some(ocg) = dict else { continue };
         let has_name = match ocg.get_deref(b"Name", doc) {
             Ok(lopdf::Object::String(bytes, _)) => !bytes.is_empty(),
-            Ok(lopdf::Object::Name(n)) => !n.is_empty(),
             _ => false,
         };
         if !has_name {

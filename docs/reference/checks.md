@@ -1,13 +1,15 @@
 # Checks Reference
 
-Horn covers **all 136 failure conditions of the Matterhorn Protocol 1.1** for
-PDF/UA-1 (ISO 14289-1):
+Horn covers **every failure condition of the Matterhorn Protocol 1.1** for
+PDF/UA-1 (ISO 14289-1). The protocol's tables list 137 index entries (its
+introduction still says 136; version 1.1 added 13-008):
 
 | | Conditions | Coverage |
 |---|---|---|
 | Machine-checkable (`M`) | 87 | **87/87** implemented as automated checks |
 | Human judgment (`H`) | 48 | **48/48** reported as *manual review* items when applicable |
 | No test defined | 2 | 23-001 and 27-001 are reported as not applicable |
+| **Total** | **137** | **137/137** appear in every report |
 
 Every result's `rule_id` is the **official Matterhorn index** (e.g. `28-010` — a
 Widget annotation not nested in a `<Form>` tag), so findings can be compared

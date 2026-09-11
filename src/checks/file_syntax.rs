@@ -64,10 +64,16 @@ fn check_header(bytes: &[u8], results: &mut Vec<CheckResult>) {
     }
 }
 
-/// 00-x02: nothing but whitespace may follow the last `%%EOF`.
+/// 00-x02: nothing but whitespace may follow the `%%EOF` that terminates the
+/// final revision, i.e. the marker that follows the last `startxref <offset>`
+/// sequence (ISO 32000-1, 7.5.5). An `%%EOF` appearing later in trailing
+/// garbage does not count.
 fn check_trailing_data(bytes: &[u8], results: &mut Vec<CheckResult>) {
-    let Some(eof) = rfind(bytes, b"%%EOF") else {
-        results.push(fail("00-x02", "File has no %%EOF end-of-file marker"));
+    let Some(eof) = final_eof_marker(bytes) else {
+        results.push(fail(
+            "00-x02",
+            "File has no `startxref <offset> %%EOF` end-of-file sequence",
+        ));
         return;
     };
     let trailing = &bytes[eof + 5..];
@@ -85,6 +91,28 @@ fn check_trailing_data(bytes: &[u8], results: &mut Vec<CheckResult>) {
     } else {
         results.push(pass("00-x02", "Nothing follows the final %%EOF marker"));
     }
+}
+
+/// Position of the `%%EOF` that belongs to the last `startxref` keyword:
+/// `startxref`, whitespace, decimal offset, whitespace, `%%EOF`.
+fn final_eof_marker(bytes: &[u8]) -> Option<usize> {
+    let start = rfind(bytes, b"startxref")?;
+    let mut pos = start + 9;
+    let ws = |b: u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n' | b'\x0c' | b'\0');
+    while pos < bytes.len() && ws(bytes[pos]) {
+        pos += 1;
+    }
+    let digits_start = pos;
+    while pos < bytes.len() && bytes[pos].is_ascii_digit() {
+        pos += 1;
+    }
+    if pos == digits_start {
+        return None;
+    }
+    while pos < bytes.len() && ws(bytes[pos]) {
+        pos += 1;
+    }
+    bytes[pos..].starts_with(b"%%EOF").then_some(pos)
 }
 
 fn rfind(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -131,11 +159,14 @@ mod tests {
         assert_eq!(r.iter().filter(|x| x.is_failure()).count(), 2);
 
         let mut r = Vec::new();
-        check_trailing_data(b"...%%EOF\n", &mut r);
-        check_trailing_data(b"...%%EOF\r\n\n", &mut r);
+        check_trailing_data(b"...startxref\n1812\n%%EOF\n", &mut r);
+        check_trailing_data(b"...startxref\r\n1812\r\n%%EOF\r\n\n", &mut r);
         assert!(r.iter().all(|x| !x.is_failure()));
-        check_trailing_data(b"...%%EOF\nGARBAGE", &mut r);
+        check_trailing_data(b"...startxref\n1812\n%%EOF\nGARBAGE", &mut r);
+        // an %%EOF inside trailing garbage must not rescue the file
+        check_trailing_data(b"...startxref\n1812\n%%EOF\nGARBAGE%%EOF\n", &mut r);
         check_trailing_data(b"no marker", &mut r);
-        assert_eq!(r.iter().filter(|x| x.is_failure()).count(), 2);
+        check_trailing_data(b"...%%EOF\n", &mut r);
+        assert_eq!(r.iter().filter(|x| x.is_failure()).count(), 4);
     }
 }

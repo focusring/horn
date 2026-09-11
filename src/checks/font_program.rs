@@ -1017,22 +1017,34 @@ impl SimpleEncoding {
             };
         }
 
-        let symbolic_lookup = || -> Option<u16> {
+        // (3,0) with the code and the 0xF0xx private-use aliases, then (1,0).
+        // A subtable that explicitly maps the code to glyph 0 is remembered so
+        // that .notdef references can be told apart from missing mappings.
+        let symbolic_lookup = || -> (Option<u16>, bool) {
+            let mut saw_notdef = false;
             for base in [0u32, 0xF000, 0xF100, 0xF200] {
-                if let Some(g) = program.cmap_lookup(3, 0, base + c) {
-                    return Some(g);
+                match program.cmap_lookup(3, 0, base + c) {
+                    Some(0) => saw_notdef = true,
+                    Some(g) => return (Some(g), false),
+                    None => {}
                 }
             }
-            program.cmap_lookup(1, 0, c)
+            match program.cmap_lookup(1, 0, c) {
+                Some(0) => (None, true),
+                Some(g) => (Some(g), false),
+                None => (None, saw_notdef),
+            }
         };
 
         if self.symbolic && !self.has_encoding_entry {
             return match symbolic_lookup() {
-                Some(g) => Resolved::Glyph(GlyphRef::Gid(usize::from(g))),
-                None => {
-                    // Fall back to any unicode cmap with the raw code, then .notdef
+                (Some(g), _) => Resolved::Glyph(GlyphRef::Gid(usize::from(g))),
+                (None, saw_notdef) => {
+                    // Fall back to any unicode cmap with the raw code
                     match program.unicode_lookup(c) {
+                        Some(0) => Resolved::NotDef,
                         Some(g) => Resolved::Glyph(GlyphRef::Gid(usize::from(g))),
+                        None if saw_notdef => Resolved::NotDef,
                         None => Resolved::Missing(format!("code {code} via (3,0)/(1,0) cmap")),
                     }
                 }
@@ -1046,16 +1058,20 @@ impl SimpleEncoding {
                 return Resolved::NotDef;
             }
             if let Some(u) = agl::glyph_name_to_unicode(name) {
-                if let Some(g) = program.cmap_lookup(3, 1, u) {
-                    return Resolved::Glyph(GlyphRef::Gid(usize::from(g)));
+                match program.cmap_lookup(3, 1, u) {
+                    Some(0) => return Resolved::NotDef,
+                    Some(g) => return Resolved::Glyph(GlyphRef::Gid(usize::from(g))),
+                    None => {}
                 }
             }
             if let Some(mac_code) = encodings::MAC_ROMAN
                 .iter()
                 .position(|n| n.is_some_and(|n| n.as_bytes() == name.as_slice()))
             {
-                if let Some(g) = program.cmap_lookup(1, 0, mac_code as u32) {
-                    return Resolved::Glyph(GlyphRef::Gid(usize::from(g)));
+                match program.cmap_lookup(1, 0, mac_code as u32) {
+                    Some(0) => return Resolved::NotDef,
+                    Some(g) => return Resolved::Glyph(GlyphRef::Gid(usize::from(g))),
+                    None => {}
                 }
             }
             if let Some(g) = program.post_lookup(name) {
@@ -1070,18 +1086,19 @@ impl SimpleEncoding {
         }
         // Symbolic fonts that nevertheless carry an Encoding: try the symbolic route too
         if self.symbolic {
-            if let Some(g) = symbolic_lookup() {
+            if let (Some(g), _) = symbolic_lookup() {
                 return Resolved::Glyph(GlyphRef::Gid(usize::from(g)));
             }
         }
         // As a last resort, (3,0) with the raw code (common in the wild)
-        if let Some(g) = program
+        match program
             .cmap_lookup(3, 0, 0xF000 + c)
             .or_else(|| program.cmap_lookup(3, 0, c))
         {
-            return Resolved::Glyph(GlyphRef::Gid(usize::from(g)));
+            Some(0) => Resolved::NotDef,
+            Some(g) => Resolved::Glyph(GlyphRef::Gid(usize::from(g))),
+            None => Resolved::CmapMiss,
         }
-        Resolved::CmapMiss
     }
 }
 
@@ -1149,9 +1166,13 @@ impl Widths {
                     Some(Object::Real(v)) => f64::from(*v),
                     _ => continue,
                 };
-                if let Ok(code) = u32::try_from(first + i as i64) {
-                    map.insert(code, w);
-                }
+                let Some(code) = first
+                    .checked_add(i as i64)
+                    .and_then(|c| u32::try_from(c).ok())
+                else {
+                    break;
+                };
+                map.insert(code, w);
             }
         }
         let default = descriptor
@@ -1182,8 +1203,11 @@ impl Widths {
                 match items.get(i + 1) {
                     Some(Object::Array(arr)) => {
                         for (k, w) in arr.iter().enumerate() {
+                            let Some(cid) = (first as u32).checked_add(k as u32) else {
+                                break;
+                            };
                             if let Some(w) = resolve(doc, w).and_then(num) {
-                                map.insert(first as u32 + k as u32, w);
+                                map.insert(cid, w);
                             }
                         }
                         i += 2;

@@ -29,6 +29,7 @@ impl Check for ContentStreamChecks {
         "Content stream: untagged content, artifact nesting"
     }
 
+    #[allow(clippy::too_many_lines)]
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>> {
         let mut results = Vec::new();
         let lopdf_doc = doc.lopdf();
@@ -41,7 +42,7 @@ impl Check for ContentStreamChecks {
         let mut tagged_in_artifact = 0u32;
         let mut pages_analyzed = 0u32;
 
-        for (page_num, page_id) in &pages {
+        for page_id in pages.values() {
             let content_data = lopdf_doc.get_page_content(*page_id);
             if content_data.is_empty() {
                 continue;
@@ -52,7 +53,9 @@ impl Check for ContentStreamChecks {
             };
 
             pages_analyzed += 1;
-            let page_result = analyze_page_content(&content.operations, *page_num);
+            let resources = crate::content::page_resources(lopdf_doc, *page_id);
+            let properties = properties_of(lopdf_doc, resources);
+            let page_result = analyze_page_content(lopdf_doc, &content.operations, properties);
 
             total_text_ops += page_result.total_text_ops;
             untagged_text_ops += page_result.untagged_text_ops;
@@ -155,8 +158,27 @@ struct PageAnalysis {
     tagged_inside_artifact: u32,
 }
 
+/// Effective state of an open marked-content sequence.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum McKind {
+    /// `BDC` with an `/MCID` — real content that belongs to the structure tree.
+    Tagged,
+    /// `/Artifact BMC` or `/Artifact BDC`.
+    Artifact,
+    /// Any other sequence (e.g. `/Span BMC`, `/Span <</Lang ..>> BDC`): it does
+    /// not by itself associate content with the structure tree.
+    Other,
+}
+
 /// Analyze a page's content stream operations for marked content coverage.
-fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> PageAnalysis {
+///
+/// `properties` is the page's `/Resources/Properties` dictionary, used to
+/// resolve `BDC` operands given as a name (`/P /MC0 BDC`).
+fn analyze_page_content(
+    doc: &lopdf::Document,
+    ops: &[lopdf::content::Operation],
+    properties: Option<&lopdf::Dictionary>,
+) -> PageAnalysis {
     let mut result = PageAnalysis {
         total_text_ops: 0,
         untagged_text_ops: 0,
@@ -165,18 +187,18 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
         tagged_inside_artifact: 0,
     };
 
-    // Track marked content nesting.
-    // mc_stack entries: true = MCID-bearing tagged sequence, false = other
-    let mut mc_stack: Vec<bool> = Vec::new();
-    // Parallel stack tracking which open sequences are /Artifact
-    let mut artifact_stack: Vec<bool> = Vec::new();
+    let mut mc_stack: Vec<McKind> = Vec::new();
+    let inside = |stack: &[McKind], kind: McKind| stack.contains(&kind);
+
     for op in ops {
         match op.operator.as_str() {
             "BMC" => {
-                // BMC has no properties dict, so no MCID — just push as non-tagged
                 let tag = op.operands.first().and_then(|o| o.as_name().ok());
-                mc_stack.push(false);
-                artifact_stack.push(tag == Some(b"Artifact"));
+                mc_stack.push(if tag == Some(b"Artifact") {
+                    McKind::Artifact
+                } else {
+                    McKind::Other
+                });
             }
             "BDC" => {
                 let tag = op
@@ -184,59 +206,50 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
                     .first()
                     .and_then(|o| o.as_name().ok())
                     .unwrap_or(b"");
-
                 let is_artifact = tag == b"Artifact";
+                let has_mcid = bdc_has_mcid(doc, op.operands.get(1), properties);
 
-                // Check if BDC has an MCID (real structure element content)
-                let has_mcid = op.operands.get(1).is_some_and(|prop| {
-                    if let Ok(dict) = prop.as_dict() {
-                        dict.get(b"MCID").is_ok()
-                    } else {
-                        false
-                    }
-                });
-
-                // 01-003: only flag artifact-in-tagged when nested inside MCID-bearing content
-                if is_artifact && mc_stack.iter().any(|m| *m) {
+                // 01-003: artifact nested inside MCID-bearing content
+                if is_artifact && inside(&mc_stack, McKind::Tagged) {
                     result.artifact_inside_tagged += 1;
                 }
-
                 // 01-004: tagged (MCID-bearing) content nested inside an Artifact
-                if has_mcid && !is_artifact && artifact_stack.iter().any(|a| *a) {
+                if has_mcid && !is_artifact && inside(&mc_stack, McKind::Artifact) {
                     result.tagged_inside_artifact += 1;
                 }
 
-                mc_stack.push(has_mcid && !is_artifact);
-                artifact_stack.push(is_artifact);
+                mc_stack.push(if is_artifact {
+                    McKind::Artifact
+                } else if has_mcid {
+                    McKind::Tagged
+                } else {
+                    McKind::Other
+                });
             }
             "EMC" => {
                 mc_stack.pop();
-                artifact_stack.pop();
             }
 
-            // Text showing operators
+            // Text showing operators: real content must be tagged or an artifact
             "Tj" | "TJ" | "'" | "\"" => {
                 result.total_text_ops += 1;
-                if mc_stack.is_empty() {
+                if !inside(&mc_stack, McKind::Tagged) && !inside(&mc_stack, McKind::Artifact) {
                     result.untagged_text_ops += 1;
                 }
             }
 
             // XObject invocation — only flag image XObjects outside marked content.
-            // Form XObjects (/Fm*) contain their own content stream with their own
-            // marked content structure, so they don't need to be inside page-level
-            // BDC/EMC. Image XObjects (/Im*) are leaf content and must be tagged.
-            "Do" => {
-                if mc_stack.is_empty() {
-                    // Check XObject name — /Im prefix indicates image
-                    let is_image = op
-                        .operands
-                        .first()
-                        .and_then(|o| o.as_name().ok())
-                        .is_some_and(|name| name.starts_with(b"Im"));
-                    if is_image {
-                        result.untagged_xobject_ops += 1;
-                    }
+            // Form XObjects contain their own content stream with their own marked
+            // content structure, so they don't need to be inside page-level BDC/EMC.
+            // Image XObjects are leaf content and must be tagged or artifacts.
+            "Do" if !inside(&mc_stack, McKind::Tagged) && !inside(&mc_stack, McKind::Artifact) => {
+                let is_image = op
+                    .operands
+                    .first()
+                    .and_then(|o| o.as_name().ok())
+                    .is_some_and(|name| name.starts_with(b"Im"));
+                if is_image {
+                    result.untagged_xobject_ops += 1;
                 }
             }
 
@@ -245,4 +258,39 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
     }
 
     result
+}
+
+/// Whether a `BDC` property operand (inline dictionary or a name resolved
+/// through `/Resources/Properties`) carries an `/MCID`.
+pub fn bdc_has_mcid(
+    doc: &lopdf::Document,
+    operand: Option<&lopdf::Object>,
+    properties: Option<&lopdf::Dictionary>,
+) -> bool {
+    let Some(operand) = operand else {
+        return false;
+    };
+    let dict = match operand {
+        lopdf::Object::Dictionary(d) => Some(d),
+        lopdf::Object::Name(name) => properties
+            .and_then(|p| p.get(name).ok())
+            .and_then(|o| match o {
+                lopdf::Object::Reference(id) => doc.get_object(*id).ok(),
+                other => Some(other),
+            })
+            .and_then(|o| o.as_dict().ok()),
+        _ => None,
+    };
+    dict.is_some_and(|d| d.get(b"MCID").is_ok())
+}
+
+/// The `/Properties` sub-dictionary of a resources dictionary.
+pub fn properties_of<'a>(
+    doc: &'a lopdf::Document,
+    resources: Option<&'a lopdf::Dictionary>,
+) -> Option<&'a lopdf::Dictionary> {
+    resources?
+        .get_deref(b"Properties", doc)
+        .ok()
+        .and_then(|o| o.as_dict().ok())
 }

@@ -48,7 +48,7 @@ fn check_document_language(doc: &mut HornDocument, results: &mut Vec<CheckResult
     let Ok(catalog) = doc.raw_catalog() else {
         results.push(fail(
             "11-001",
-            6,
+            11,
             "Document language not set: cannot read catalog",
         ));
         return;

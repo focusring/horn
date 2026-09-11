@@ -54,7 +54,13 @@ impl Check for XObjectChecks {
             let Ok(data) = stream.decompressed_content() else {
                 continue;
             };
-            if !content_has_mcid(&data) {
+            let resources = stream
+                .dict
+                .get_deref(b"Resources", lopdf)
+                .ok()
+                .and_then(|o| o.as_dict().ok());
+            let properties = crate::checks::content_stream::properties_of(lopdf, resources);
+            if !content_has_mcid(lopdf, &data, properties) {
                 continue;
             }
             structured_multi += 1;
@@ -90,17 +96,18 @@ impl Check for XObjectChecks {
     }
 }
 
-/// True if a content stream contains a `BDC` with an `/MCID` property.
-pub fn content_has_mcid(data: &[u8]) -> bool {
+/// True if a content stream contains a `BDC` with an `/MCID` property, given
+/// either inline or through a named property list in `properties`.
+pub fn content_has_mcid(
+    doc: &lopdf::Document,
+    data: &[u8],
+    properties: Option<&lopdf::Dictionary>,
+) -> bool {
     let Ok(content) = Content::decode(data) else {
         return false;
     };
     content.operations.iter().any(|op| {
         op.operator == "BDC"
-            && op
-                .operands
-                .get(1)
-                .and_then(|o| o.as_dict().ok())
-                .is_some_and(|d| d.get(b"MCID").is_ok())
+            && crate::checks::content_stream::bdc_has_mcid(doc, op.operands.get(1), properties)
     })
 }

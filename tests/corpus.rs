@@ -588,3 +588,38 @@ fn every_condition_appears_in_a_report() {
         );
     }
 }
+
+#[test]
+fn result_checkpoints_match_rule_ids() {
+    let dir = fixtures().join("verapdf-corpus/PDF_UA-1");
+    let mut pdfs = all_pdfs(&dir);
+    pdfs.extend(all_pdfs(&fixtures().join("pdfua-reference-suite")));
+    pdfs.extend(all_pdfs(&fixtures().join("generated")));
+    assert!(!pdfs.is_empty());
+
+    let mut mismatches = Vec::new();
+    for pdf in &pdfs {
+        let report = horn::validate_file(pdf);
+        for r in &report.results {
+            if r.rule_id == "baseline" {
+                continue;
+            }
+            let expected = horn::checks::checkpoint_of(&r.rule_id);
+            if r.checkpoint != expected {
+                mismatches.push(format!(
+                    "{}: rule {} has checkpoint {} (expected {expected})",
+                    pdf.file_name().unwrap().to_string_lossy(),
+                    r.rule_id,
+                    r.checkpoint
+                ));
+            }
+        }
+    }
+    mismatches.sort();
+    mismatches.dedup();
+    assert!(
+        mismatches.is_empty(),
+        "checkpoint metadata inconsistent with rule ids:\n{}",
+        mismatches.join("\n")
+    );
+}

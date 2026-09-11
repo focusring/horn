@@ -162,6 +162,16 @@ fn check_role_mapping(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
         return;
     };
 
+    // The set of "standard" types depends on the standard being validated:
+    // ISO 32000-1 types under PDF/UA-1, ISO 32000-2 types under PDF/UA-2. The
+    // same predicate is used for the remapping check (02-004), the chain
+    // termination check (02-001) and cycle detection (02-003).
+    let is_std: fn(&[u8]) -> bool = if standard == Standard::Ua2 {
+        is_standard_structure_type
+    } else {
+        is_iso32000_1_structure_type
+    };
+
     match struct_tree.get_deref(b"RoleMap", lopdf_doc) {
         Ok(obj) => {
             if let Ok(role_map) = obj.as_dict() {
@@ -173,12 +183,7 @@ fn check_role_mapping(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
                         // Under PDF/UA-1 the standard set is that of ISO 32000-1; the
                         // PDF 2.0 additions (Title, Aside, …) are non-standard there and
                         // are commonly role-mapped, e.g. /Title -> /P.
-                        let is_standard = if standard == Standard::Ua2 {
-                            is_standard_structure_type(user_role)
-                        } else {
-                            is_iso32000_1_structure_type(user_role)
-                        };
-                        if is_standard {
+                        if is_std(user_role) {
                             let role_str = String::from_utf8_lossy(user_role);
                             let target_str = String::from_utf8_lossy(std_role);
                             results.push(fail(
@@ -208,8 +213,8 @@ fn check_role_mapping(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
 
                         // Check for circular chains: follow the mapping chain
                         // and detect if it loops back without reaching a standard type
-                        if !is_standard_structure_type(std_role) {
-                            if let Some(cycle) = detect_role_cycle(role_map, user_role) {
+                        if !is_std(std_role) {
+                            if let Some(cycle) = detect_role_cycle(role_map, user_role, is_std) {
                                 let user_role_str = String::from_utf8_lossy(user_role);
                                 results.push(fail(
                                     "02-003",
@@ -254,7 +259,12 @@ fn check_role_mapping(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
 }
 
 /// Detect circular chains in a `RoleMap`. Returns a description of the cycle if found.
-fn detect_role_cycle(role_map: &lopdf::Dictionary, start: &[u8]) -> Option<String> {
+/// `is_std` decides which target types terminate a chain.
+fn detect_role_cycle(
+    role_map: &lopdf::Dictionary,
+    start: &[u8],
+    is_std: fn(&[u8]) -> bool,
+) -> Option<String> {
     let mut visited = Vec::new();
     let mut current = start;
     visited.push(String::from_utf8_lossy(current).into_owned());
@@ -268,7 +278,7 @@ fn detect_role_cycle(role_map: &lopdf::Dictionary, start: &[u8]) -> Option<Strin
             return Some(visited.join(" -> "));
         }
 
-        if is_standard_structure_type(target) {
+        if is_std(target) {
             return None; // Chain resolves to a standard type
         }
 

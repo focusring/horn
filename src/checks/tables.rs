@@ -46,7 +46,7 @@ impl Check for TableChecks {
             if table.rows.is_empty() {
                 results.push(fail(
                     "09-004",
-                    15,
+                    9,
                     &format!("{table_label}: Table structure element has no TR (row) children"),
                 ));
             }
@@ -156,8 +156,15 @@ impl Check for TableChecks {
                 ));
             }
 
-            // If everything checks out
-            if has_th && !table.rows.is_empty() && table.attr_issues.is_empty() {
+            // If everything checks out (headers present, associable, valid Scope values)
+            let headers_associable =
+                table.has_scope_attr || table.has_headers_attr || table.has_thead;
+            if has_th
+                && !table.rows.is_empty()
+                && table.attr_issues.is_empty()
+                && headers_associable
+                && !table.has_invalid_scope
+            {
                 results.push(pass(
                     "15-003",
                     15,
@@ -515,8 +522,7 @@ fn check_scope_attr(doc: &lopdf::Document, attrs: &lopdf::Object) -> (bool, bool
             Ok(scope_obj) => {
                 let valid = scope_obj
                     .as_name()
-                    .ok()
-                    .is_some_and(|n| matches!(n, b"Row" | b"Column" | b"Both"));
+                    .is_ok_and(|n| matches!(n, b"Row" | b"Column" | b"Both"));
                 (true, valid)
             }
             Err(_) => (false, false),
@@ -574,8 +580,7 @@ fn check_for_headers_attr(doc: &lopdf::Document, attrs: &lopdf::Object) -> bool 
         }),
         lopdf::Object::Reference(ref_id) => doc
             .get_object(*ref_id)
-            .ok()
-            .is_some_and(|o| check_for_headers_attr(doc, o)),
+            .is_ok_and(|o| check_for_headers_attr(doc, o)),
         _ => false,
     }
 }

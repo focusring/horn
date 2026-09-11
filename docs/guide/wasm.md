@@ -96,11 +96,11 @@ The `validate` function returns the same `FileReport` structure as the CLI's JSO
     {
       "rule_id": "11-001",
       "checkpoint": 11,
-      "description": "Document language not set",
+      "description": "Document catalog missing /Lang entry",
       "severity": "error",
       "outcome": {
         "status": "Fail",
-        "message": "No /Lang entry in document catalog"
+        "message": "Document catalog missing /Lang entry"
       }
     }
   ],

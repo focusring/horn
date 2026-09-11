@@ -396,8 +396,7 @@ fn check_annot_accessible_text(
             let is_hidden = annot_dict
                 .get(b"F")
                 .and_then(lopdf::Object::as_i64)
-                .ok()
-                .is_some_and(|f| f & 0x23 != 0)
+                .is_ok_and(|f| f & 0x23 != 0)
                 || has_inherited_flag_hidden(doc, annot_dict, 10);
             let has_appearance = annot_dict.get(b"AP").is_ok();
             if !is_hidden && has_appearance && !is_zero_size_rect(annot_dict) {
@@ -519,10 +518,10 @@ fn printer_mark_unmarked_content(doc: &lopdf::Document, annot: &lopdf::Dictionar
                 artifact_depth = artifact_depth.saturating_sub(1);
             }
             "Tj" | "TJ" | "'" | "\"" | "Do" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "S"
-            | "s" | "sh" | "BI" | "EI" => {
-                if artifact_depth == 0 {
-                    unmarked += 1;
-                }
+            | "s" | "sh" | "BI" | "EI"
+                if artifact_depth == 0 =>
+            {
+                unmarked += 1;
             }
             _ => {}
         }
@@ -601,7 +600,7 @@ fn check_screen_annotation(
     }
 
     // Check /Alt on media clip — must be an array with non-empty text entries
-    match clip_dict.get(b"Alt") {
+    match clip_dict.get_deref(b"Alt", doc) {
         Ok(alt_obj) => {
             if let Ok(arr) = alt_obj.as_array() {
                 // Alt array format: [lang1, text1, lang2, text2, ...]
@@ -610,7 +609,7 @@ fn check_screen_annotation(
                     .iter()
                     .enumerate()
                     .filter(|(i, _)| i % 2 == 1)
-                    .any(|(_, item)| item.as_str().ok().is_some_and(|s| !s.is_empty()));
+                    .any(|(_, item)| item.as_str().is_ok_and(|s| !s.is_empty()));
                 if !has_nonempty_text {
                     results.push(annot_fail(
                         "28-015",
@@ -619,6 +618,13 @@ fn check_screen_annotation(
                         "/Screen",
                     ));
                 }
+            } else {
+                results.push(annot_fail(
+                    "28-015",
+                    page_num,
+                    "Screen annotation media clip /Alt is not an array of language/text pairs",
+                    "/Screen",
+                ));
             }
         }
         Err(_) => {
@@ -744,7 +750,7 @@ fn has_inherited_key(
 ) -> bool {
     // Check if key exists and has a non-empty value
     if let Ok(obj) = dict.get(key) {
-        let is_empty = obj.as_str().ok().is_some_and(<[u8]>::is_empty);
+        let is_empty = obj.as_str().is_ok_and(<[u8]>::is_empty);
         if !is_empty {
             return true;
         }

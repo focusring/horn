@@ -392,10 +392,7 @@ fn has_outline_titles(doc: &lopdf::Document, node: &lopdf::Dictionary, depth: us
 
     // Check siblings via /Next chain
     let mut current = item;
-    loop {
-        let Ok(next_obj) = current.get(b"Next") else {
-            break;
-        };
+    while let Ok(next_obj) = current.get(b"Next") {
         let next_ref = next_obj.as_reference().ok();
         let next = next_ref
             .and_then(|r| doc.get_object(r).ok())

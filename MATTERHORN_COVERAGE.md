@@ -2,13 +2,16 @@
 
 ## Status (2026-09-11)
 
-Horn covers **all 136 failure conditions** of the Matterhorn Protocol 1.1 (PDF/UA-1):
+Horn covers **every failure condition** of the Matterhorn Protocol 1.1 (PDF/UA-1).
+The protocol's tables contain 137 index entries — its introduction still says
+136, but version 1.1 added condition 13-008:
 
 | | Conditions | Horn |
 |---|---|---|
 | Machine-checkable | 87 | 87 implemented as automated checks |
 | Human judgment | 48 | 48 reported as manual-review items when the document contains the relevant feature |
 | No test defined (23-001, 27-001) | 2 | reported as not applicable |
+| **Total** | **137** | **137** appear in every report |
 
 Test results (`cargo test`, enforced by `tests/corpus.rs`):
 
@@ -64,7 +67,7 @@ in the release notes when migrating SARIF / JUnit consumers.
 | Session 2 | 244/296 (82.4%) | Font, annotation, language, content stream checks |
 | Session 3 | 265/296 (89.5%) | Encoding validation, RoleMap cycles, OC AS, table attributes, annotation struct overhaul |
 | Session 4 | 285/296 (96.3%) | Untagged images, annotation language, .notdef detection |
-| 2026-09-11 | **297/297 (100%)** | Official Matterhorn ids, font-program analysis, content usage, table grid, all 136 conditions covered |
+| 2026-09-11 | **297/297 (100%)** | Official Matterhorn ids, font-program analysis, content usage, table grid, all 137 conditions covered |
 
 ## References
 

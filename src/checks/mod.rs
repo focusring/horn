@@ -60,6 +60,12 @@ pub trait Check: Send + Sync {
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>>;
 }
 
+/// Matterhorn checkpoint number of a rule id (`"28-010"` → 28, `"15-x04"` → 15,
+/// `"baseline"` → 0).
+pub fn checkpoint_of(rule_id: &str) -> u8 {
+    rule_id.get(..2).and_then(|cp| cp.parse().ok()).unwrap_or(0)
+}
+
 /// Registry of all available checks.
 pub struct CheckRegistry {
     checks: Vec<Box<dyn Check>>,

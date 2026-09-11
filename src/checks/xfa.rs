@@ -117,27 +117,82 @@ fn collect_xfa_xml(doc: &lopdf::Document, xfa: &lopdf::Object) -> String {
     out
 }
 
-/// True if the XFA XML contains `<dynamicRender>required</dynamicRender>`
-/// (whitespace-insensitive, ignoring a namespace prefix on the element name).
+/// True if the XFA XML contains a `<dynamicRender>` element (optionally
+/// namespace-prefixed, case-insensitive) whose text content is `required`.
 fn xfa_requires_dynamic_render(xml: &str) -> bool {
     let lower = xml.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
     let mut pos = 0;
-    while let Some(idx) = lower[pos..].find("dynamicrender") {
-        let start = pos + idx;
-        let Some(gt) = lower[start..].find('>') else {
+    while let Some(idx) = lower[pos..].find('<') {
+        let start = pos + idx + 1;
+        pos = start;
+        // Skip comments entirely, and processing instructions / closing tags
+        if lower[start..].starts_with("!--") {
+            let Some(end) = lower[start..].find("-->") else {
+                break;
+            };
+            pos = start + end + 3;
+            continue;
+        }
+        if bytes
+            .get(start)
+            .is_none_or(|b| matches!(b, b'!' | b'?' | b'/'))
+        {
+            continue;
+        }
+        // Element name: up to whitespace, '>' or '/'
+        let name_end = lower[start..]
+            .find(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/')
+            .map_or(lower.len(), |i| start + i);
+        let qname = &lower[start..name_end];
+        let local = qname.rsplit(':').next().unwrap_or(qname);
+        if local != "dynamicrender" {
+            continue;
+        }
+        let Some(gt) = lower[name_end..].find('>') else {
             break;
         };
-        let value_start = start + gt + 1;
+        if lower[name_end..name_end + gt].ends_with('/') {
+            continue; // self-closing, no text content
+        }
+        let value_start = name_end + gt + 1;
         let Some(lt) = lower[value_start..].find('<') else {
             break;
         };
-        let value = lower[value_start..value_start + lt].trim();
-        if value == "required" {
+        if lower[value_start..value_start + lt].trim() == "required" {
             return true;
         }
         pos = value_start + lt;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::xfa_requires_dynamic_render;
+
+    #[test]
+    fn matches_element_not_substring() {
+        assert!(xfa_requires_dynamic_render(
+            "<config><present><pdf><dynamicRender>required</dynamicRender></pdf></present></config>"
+        ));
+        assert!(xfa_requires_dynamic_render(
+            "<xfa:dynamicRender> Required </xfa:dynamicRender>"
+        ));
+        assert!(!xfa_requires_dynamic_render(
+            "<dynamicRender>forbidden</dynamicRender>"
+        ));
+        assert!(!xfa_requires_dynamic_render(
+            "<!-- <dynamicRender>required</dynamicRender> -->"
+        ));
+        assert!(!xfa_requires_dynamic_render(
+            "<dynamicRenderX>required</dynamicRenderX>"
+        ));
+        assert!(!xfa_requires_dynamic_render(
+            "<note dynamicRender=\"required\">x</note>"
+        ));
+        assert!(!xfa_requires_dynamic_render("<dynamicRender/>"));
+    }
 }
 
 fn pass(rule_id: &str, description: &str) -> CheckResult {

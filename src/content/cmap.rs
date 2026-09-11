@@ -445,26 +445,45 @@ impl ToUnicodeCMap {
         }
         for (n, lo, hi, dst) in &self.ranges {
             if *n == num_bytes && code >= *lo && code <= *hi {
-                let mut units = dst.clone();
-                if let Some(last) = units.last_mut() {
-                    *last = last.wrapping_add((code - lo) as u16);
-                }
-                return Some(units);
+                return Some(add_to_utf16(dst, code - lo));
             }
         }
         None
     }
 
-    /// Every destination code-unit sequence in the `CMap` (chars and range starts),
+    /// Every destination code-unit sequence in the `CMap`: single mappings and
+    /// every code of every range (ranges are capped at 65 536 entries each),
     /// for scanning for forbidden values.
-    pub fn all_destinations(&self) -> impl Iterator<Item = &Vec<u16>> {
-        self.chars.values().chain(self.ranges.iter().map(|r| &r.3))
+    pub fn all_destinations(&self) -> impl Iterator<Item = Vec<u16>> + '_ {
+        let singles = self.chars.values().cloned();
+        let ranges = self.ranges.iter().flat_map(|(_, lo, hi, dst)| {
+            let span = hi.saturating_sub(*lo).min(0xFFFF);
+            (0..=span).map(move |k| add_to_utf16(dst, k))
+        });
+        singles.chain(ranges)
     }
 
     /// True if the `CMap` has no mappings at all.
     pub fn is_empty(&self) -> bool {
         self.chars.is_empty() && self.ranges.is_empty()
     }
+}
+
+/// Add `delta` to a UTF-16BE code-unit sequence as one big-endian integer,
+/// carrying into the preceding units (ISO 32000-1, 9.10.3: "the last byte of
+/// the string is incremented", with overflow carried into earlier bytes).
+fn add_to_utf16(units: &[u16], delta: u32) -> Vec<u16> {
+    let mut out = units.to_vec();
+    let mut carry = u64::from(delta);
+    for unit in out.iter_mut().rev() {
+        if carry == 0 {
+            break;
+        }
+        let sum = u64::from(*unit) + carry;
+        *unit = (sum & 0xFFFF) as u16;
+        carry = sum >> 16;
+    }
+    out
 }
 
 fn be_u32(bytes: &[u8]) -> u32 {
@@ -516,6 +535,16 @@ mod tests {
         assert_eq!(c.lookup(0x0024, 2), Some(vec![0xD835, 0xDC00]));
         assert_eq!(c.lookup(0x0011, 2), Some(vec![0x42]));
         assert_eq!(c.lookup(0x0021, 2), Some(vec![0x0000]));
-        assert!(c.all_destinations().any(|d| d == &vec![0u16]));
+        assert!(c.all_destinations().any(|d| d == vec![0u16]));
+    }
+
+    #[test]
+    fn bfrange_carries_into_preceding_units() {
+        let src = b"1 beginbfrange <0000> <0002> <D83DFFFE> endbfrange";
+        let c = ToUnicodeCMap::parse(src);
+        assert_eq!(c.lookup(0x0001, 2), Some(vec![0xD83D, 0xFFFF]));
+        assert_eq!(c.lookup(0x0002, 2), Some(vec![0xD83E, 0x0000]));
+        // every generated destination is visible to the forbidden-value scan
+        assert!(c.all_destinations().any(|d| d == vec![0xD83E, 0x0000]));
     }
 }

@@ -4,4 +4,4 @@
 pub mod cmap;
 pub mod usage;
 
-pub use usage::{ContentUsage, FontUsage, FontUsageMap, collect_content_usage};
+pub use usage::{ContentUsage, FontUsage, FontUsageMap, collect_content_usage, page_resources};

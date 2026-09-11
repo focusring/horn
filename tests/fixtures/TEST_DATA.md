@@ -127,7 +127,7 @@ find tests/fixtures/verapdf-corpus/PDF_UA-1 -name "*-fail-*.pdf" | \
 # Test heading checks (Section 7.4 -> Matterhorn 07)
 cargo run -- check "tests/fixtures/verapdf-corpus/PDF_UA-1/7.4 Headings/"
 
-# Test font checks (Section 7.21 -> Matterhorn 14)
+# Test font checks (Section 7.21 -> Matterhorn 10 and 31)
 cargo run -- check "tests/fixtures/verapdf-corpus/PDF_UA-1/7.21 Fonts/"
 ```
 
@@ -254,7 +254,7 @@ simple atomic test files often miss:
 ### Running
 
 ```bash
-# Validate all reference suite files (should report 0 errors, 9/9 compliant)
+# Validate all reference suite files (should report 0 errors, 10/10 compliant)
 cargo run --release -- validate -r tests/fixtures/pdfua-reference-suite/
 ```
 

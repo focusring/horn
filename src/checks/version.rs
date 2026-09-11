@@ -18,7 +18,7 @@ impl Check for VersionChecks {
     }
 
     fn checkpoint(&self) -> u8 {
-        5
+        6
     }
 
     fn rules(&self) -> &'static [&'static str] {
@@ -317,7 +317,7 @@ fn check_extension_schema(xmp: &str, results: &mut Vec<CheckResult>) {
 fn pass(rule_id: &str, description: &str) -> CheckResult {
     CheckResult {
         rule_id: rule_id.to_string(),
-        checkpoint: 5,
+        checkpoint: 6,
         description: description.to_string(),
         severity: Severity::Info,
         outcome: CheckOutcome::Pass,
@@ -327,7 +327,7 @@ fn pass(rule_id: &str, description: &str) -> CheckResult {
 fn fail(rule_id: &str, message: &str) -> CheckResult {
     CheckResult {
         rule_id: rule_id.to_string(),
-        checkpoint: 5,
+        checkpoint: 6,
         description: message.to_string(),
         severity: Severity::Error,
         outcome: CheckOutcome::Fail {
