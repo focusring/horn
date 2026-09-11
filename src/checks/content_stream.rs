@@ -38,9 +38,10 @@ impl Check for ContentStreamChecks {
         let mut pages_analyzed = 0u32;
 
         for (page_num, page_id) in &pages {
-            let Ok(content_data) = lopdf_doc.get_page_content(*page_id) else {
+            let content_data = lopdf_doc.get_page_content(*page_id);
+            if content_data.is_empty() {
                 continue;
-            };
+            }
 
             let Ok(content) = Content::decode(&content_data) else {
                 continue;
