@@ -142,26 +142,26 @@ Legend — *How*: `M` machine-checkable, `H` human judgment. *Module*: the check
 
 | Rule | How | Failure condition | Module |
 |------|-----|-------------------|--------|
-| 13-001 | H | Graphics objects other than text objects and artifacts are not tagged with a <Figure> tag. | `human_review` |
+| 13-001 | H | Graphics objects other than text objects and artifacts are not tagged with a `<Figure>` tag. | `human_review` |
 | 13-002 | H | A link with a meaningful background does not include alternative text describing both the link and the graphic's purpose. | `human_review` |
-| 13-003 | H | A caption is not tagged with a <Caption> tag. | `human_review` |
-| 13-004 | M | <Figure> tag alternative or replacement text missing. | `baseline`, `images` |
-| 13-005 | H | ActualText used for a <Figure> for which alternative text is more appropriate. | `human_review` |
+| 13-003 | H | A caption is not tagged with a `<Caption>` tag. | `human_review` |
+| 13-004 | M | `<Figure>` tag alternative or replacement text missing. | `baseline`, `images` |
+| 13-005 | H | ActualText used for a `<Figure>` for which alternative text is more appropriate. | `human_review` |
 | 13-006 | H | Graphics objects that possess semantic value only within a group of graphics objects is tagged on its own. | `human_review` |
 | 13-007 | H | A more accessible representation is not used. | `human_review` |
-| 13-008 | H | ActualText not present when a <Figure> is intended to be consumed primarily as text. | `human_review` |
+| 13-008 | H | ActualText not present when a `<Figure>` is intended to be consumed primarily as text. | `human_review` |
 
 ### Checkpoint 14: Headings
 
 | Rule | How | Failure condition | Module |
 |------|-----|-------------------|--------|
 | 14-001 | H | Headings are not tagged. | `human_review` |
-| 14-002 | M | Does use numbered headings, but the first heading tag is not <H1>. | `headings` |
-| 14-003 | M | Numbered heading levels in descending sequence are skipped (Example: <H3> follows directly after <H1>). | `baseline`, `headings` |
+| 14-002 | M | Does use numbered headings, but the first heading tag is not `<H1>`. | `headings` |
+| 14-003 | M | Numbered heading levels in descending sequence are skipped (Example: `<H3>` follows directly after `<H1>`). | `baseline`, `headings` |
 | 14-004 | H | Numbered heading tags do not use Arabic numerals and are not role mapped to heading types that do. | `human_review` |
-| 14-005 | H | Content representing a 7th level (or higher) heading does not use an <H7> (or higher) tag. | `human_review` |
-| 14-006 | M | A node contains more than one <H> tag. | `headings` |
-| 14-007 | M | Document uses both <H> and <H#> tags. | `headings` |
+| 14-005 | H | Content representing a 7th level (or higher) heading does not use an `<H7>` (or higher) tag. | `human_review` |
+| 14-006 | M | A node contains more than one `<H>` tag. | `headings` |
+| 14-007 | M | Document uses both `<H>` and `<H#>` tags. | `headings` |
 
 ### Checkpoint 15: Tables
 
@@ -169,7 +169,7 @@ Legend — *How*: `M` machine-checkable, `H` human judgment. *Module*: the check
 |------|-----|-------------------|--------|
 | 15-001 | H | A row has a header cell, but that header cell is not tagged as a header. | `human_review` |
 | 15-002 | H | A column has a header cell, but that header cell is not tagged as a header. | `human_review` |
-| 15-003 | M | In a table not organized with Headers attributes and IDs, a <TH> cell does not contain a Scope attribute. | `baseline`, `tables` |
+| 15-003 | M | In a table not organized with Headers attributes and IDs, a `<TH>` cell does not contain a Scope attribute. | `baseline`, `tables` |
 | 15-004 | H | Content is tagged as a table for information that is not organized in rows and columns. | `human_review` |
 | 15-005 | H | A given cell's header cannot be unambiguously determined. | `human_review` |
 
@@ -185,8 +185,8 @@ Legend — *How*: `M` machine-checkable, `H` human judgment. *Module*: the check
 
 | Rule | How | Failure condition | Module |
 |------|-----|-------------------|--------|
-| 17-001 | H | Content is a mathematical expression but is not tagged with a <Formula> tag. | `human_review` |
-| 17-002 | M | <Formula> tag is missing an Alt attribute. | `math` |
+| 17-001 | H | Content is a mathematical expression but is not tagged with a `<Formula>` tag. | `human_review` |
+| 17-002 | M | `<Formula>` tag is missing an Alt attribute. | `math` |
 | 17-003 | M | Unicode mapping requirements are not met. | `font_program` |
 
 ### Checkpoint 18: Page Headers and Footers
@@ -200,10 +200,10 @@ Legend — *How*: `M` machine-checkable, `H` human judgment. *Module*: the check
 
 | Rule | How | Failure condition | Module |
 |------|-----|-------------------|--------|
-| 19-001 | H | Footnotes or endnotes are not tagged as <Note>. | `human_review` |
-| 19-002 | H | References are not tagged as <Reference>. | `human_review` |
-| 19-003 | M | ID entry of the <Note> tag is not present. | `notes` |
-| 19-004 | M | ID entry of the <Note> tag is non-unique. | `notes` |
+| 19-001 | H | Footnotes or endnotes are not tagged as `<Note>`. | `human_review` |
+| 19-002 | H | References are not tagged as `<Reference>`. | `human_review` |
+| 19-003 | M | ID entry of the `<Note>` tag is not present. | `notes` |
+| 19-004 | M | ID entry of the `<Note>` tag is non-unique. | `notes` |
 
 ### Checkpoint 20: Optional Content
 
@@ -261,7 +261,7 @@ Legend — *How*: `M` machine-checkable, `H` human judgment. *Module*: the check
 | Rule | How | Failure condition | Module |
 |------|-----|-------------------|--------|
 | 28-001 | H | An annotation is not in correct reading order. | `human_review` |
-| 28-002 | M | An annotation, other than of subtype Widget, Link and PrinterMark, is not a direct child of an <Annot> structure element. | `annot_struct`, `baseline` |
+| 28-002 | M | An annotation, other than of subtype Widget, Link and PrinterMark, is not a direct child of an `<Annot>` structure element. | `annot_struct`, `baseline` |
 | 28-003 | H | An annotation is used for visual formatting but is not tagged according to its semantic function. | `human_review` |
 | 28-004 | M | An annotation, other than of subtype Widget, has neither a Contents entry nor an Alt entry on the enclosing structure element. | `annot_struct`, `baseline` |
 | 28-005 | M | A form field has neither a TU entry nor an Alt entry on the enclosing structure element. | `annot_struct`, `baseline` |
@@ -269,8 +269,8 @@ Legend — *How*: `M` machine-checkable, `H` human judgment. *Module*: the check
 | 28-007 | M | An annotation of subtype TrapNet exists. | `annot_struct` |
 | 28-008 | M | A page containing an annotation does not contain a Tabs entry. | `annotations` |
 | 28-009 | M | A page containing an annotation has a Tabs entry with a value other than S. | `annotations` |
-| 28-010 | M | A widget annotation is not nested within a <Form> tag. | `annot_struct`, `baseline` |
-| 28-011 | M | A link annotation is not nested within a <Link> tag. | `annot_struct` |
+| 28-010 | M | A widget annotation is not nested within a `<Form>` tag. | `annot_struct`, `baseline` |
+| 28-011 | M | A link annotation is not nested within a `<Link>` tag. | `annot_struct` |
 | 28-012 | M | A link annotation does not include an alternate description in its Contents entry. | `annot_struct` |
 | 28-013 | H | An IsMap entry is present with a value of true but the functionality is not provided in some other way. | `human_review` |
 | 28-014 | M | CT entry is missing from the media clip data dictionary. | `annot_struct` |
