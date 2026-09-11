@@ -5,7 +5,9 @@ use anyhow::Result;
 
 /// Checkpoint 31: Font checks.
 ///
-/// Validates font embedding, `ToUnicode` `CMaps`, and glyph mapping.
+/// Validates font embedding (31-009), composite-font CMap consistency
+/// (31-001 … 31-008), CIDToGIDMap (31-004 / 31-005) and simple-font encodings
+/// (31-019 … 31-022). Font-program level checks live in `font_program.rs`.
 pub struct FontChecks;
 
 impl Check for FontChecks {
@@ -18,16 +20,26 @@ impl Check for FontChecks {
     }
 
     fn description(&self) -> &'static str {
-        "Fonts: embedding, ToUnicode CMaps, glyph mapping"
+        "Fonts: embedding, CMaps, CIDToGIDMap, encodings"
     }
 
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>> {
         let mut results = Vec::new();
         let standard = doc.standard();
+        let usage = doc.font_usage();
         let lopdf_doc = doc.lopdf();
         let pages = lopdf_doc.get_pages();
 
         for (page_num, page_id) in &pages {
+            let Ok(page) = lopdf_doc.get_dictionary(*page_id) else {
+                continue;
+            };
+            let font_refs = page
+                .get_deref(b"Resources", lopdf_doc)
+                .ok()
+                .and_then(|o| o.as_dict().ok())
+                .and_then(|r| r.get_deref(b"Font", lopdf_doc).ok())
+                .and_then(|o| o.as_dict().ok());
             let Ok(fonts) = lopdf_doc.get_page_fonts(*page_id) else {
                 continue;
             };
@@ -39,27 +51,23 @@ impl Check for FontChecks {
                     element: Some(format!("Font /{font_label}")),
                 });
 
-                check_font_embedding(
-                    lopdf_doc,
-                    font_dict,
-                    &font_label,
-                    location.as_ref(),
-                    &mut results,
-                );
-                check_tounicode(
-                    lopdf_doc,
-                    font_dict,
-                    &font_label,
-                    location.as_ref(),
-                    &mut results,
-                );
-                check_tounicode_content(
-                    lopdf_doc,
-                    font_dict,
-                    &font_label,
-                    location.as_ref(),
-                    &mut results,
-                );
+                // 31-009 only applies to fonts used for rendering: a font whose
+                // text is shown exclusively in rendering mode 3 (invisible, e.g.
+                // OCR layers) is exempt from the embedding requirement.
+                let font_id = font_refs
+                    .and_then(|f| f.get(font_name).ok())
+                    .and_then(|o| o.as_reference().ok());
+                let rendered = font_id.and_then(|id| usage.get(&id)).is_none_or(|u| u.rendered);
+
+                if rendered {
+                    check_font_embedding(
+                        lopdf_doc,
+                        font_dict,
+                        &font_label,
+                        location.as_ref(),
+                        &mut results,
+                    );
+                }
                 check_encoding_differences(
                     lopdf_doc,
                     font_dict,
@@ -67,9 +75,6 @@ impl Check for FontChecks {
                     location.as_ref(),
                     &mut results,
                 );
-                // check_font_program is scaffolding — not called until
-                // 31-008/31-009/31-010 checks are ready to emit results.
-                // Calling it now would decompress/parse FontFile2 for no benefit.
             }
         }
 
@@ -186,103 +191,6 @@ fn check_font_descriptor_embedding(
                 },
             });
         }
-    }
-}
-
-/// 31-007: Validate `ToUnicode` `CMap` content for invalid mappings.
-///
-/// A `ToUnicode` `CMap` that maps character codes to U+0000 (NULL) is invalid —
-/// it means glyphs have no Unicode representation.
-fn check_tounicode_content(
-    doc: &lopdf::Document,
-    font_dict: &lopdf::Dictionary,
-    font_label: &str,
-    location: Option<&Location>,
-    results: &mut Vec<CheckResult>,
-) {
-    let Ok(tu_obj) = font_dict.get(b"ToUnicode") else {
-        return;
-    };
-
-    let Ok(tu_ref) = tu_obj.as_reference() else {
-        return;
-    };
-    let Ok(tu_resolved) = doc.get_object(tu_ref) else {
-        return;
-    };
-    let Ok(tu_stream) = tu_resolved.as_stream() else {
-        return;
-    };
-    let Ok(stream_data) = tu_stream.decompressed_content() else {
-        return;
-    };
-
-    let content = String::from_utf8_lossy(&stream_data);
-
-    // Check for mappings to invalid Unicode values in bfchar sections
-    // Format: <XX> <YYYY>
-    let mut null_mappings = 0;
-    let mut nonchar_mappings = 0;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with('<') {
-            continue;
-        }
-        // Extract target value: second <XXXX> on the line
-        if let Some(target_start) = trimmed.find("> <") {
-            let after = &trimmed[target_start + 3..];
-            if let Some(target_end) = after.find('>') {
-                let target = after[..target_end].trim();
-                // U+0000 — null, no Unicode representation
-                if target.eq_ignore_ascii_case("0000") {
-                    null_mappings += 1;
-                }
-                // U+FFFE — guaranteed noncharacter (byte-order mark reversed)
-                // U+FEFF — BOM / zero-width no-break space (invalid as text mapping target)
-                // Note: U+FFFF is also a noncharacter but commonly used as a placeholder
-                // in valid CID font ToUnicode CMaps, so we don't flag it.
-                if target.len() == 4 {
-                    let upper = target.to_ascii_uppercase();
-                    if matches!(upper.as_str(), "FFFE" | "FEFF") {
-                        nonchar_mappings += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    if null_mappings > 0 {
-        results.push(CheckResult {
-            rule_id: "31-028".to_string(),
-            checkpoint: 31,
-            description: format!(
-                "Font /{font_label}: ToUnicode CMap has {null_mappings} mapping(s) to U+0000"
-            ),
-            severity: Severity::Error,
-            outcome: CheckOutcome::Fail {
-                message: format!(
-                    "Font /{font_label}: ToUnicode CMap maps {null_mappings} character code(s) to U+0000 (null) — glyphs have no Unicode representation"
-                ),
-                location: location.cloned(),
-            },
-        });
-    }
-
-    if nonchar_mappings > 0 {
-        results.push(CheckResult {
-            rule_id: "31-029".to_string(),
-            checkpoint: 31,
-            description: format!(
-                "Font /{font_label}: ToUnicode CMap has {nonchar_mappings} mapping(s) to Unicode noncharacters"
-            ),
-            severity: Severity::Error,
-            outcome: CheckOutcome::Fail {
-                message: format!(
-                    "Font /{font_label}: ToUnicode CMap maps {nonchar_mappings} character code(s) to Unicode noncharacters (U+FFFE, U+FEFF, U+FFFF, or U+FDD0-U+FDEF)"
-                ),
-                location: location.cloned(),
-            },
-        });
     }
 }
 
@@ -511,154 +419,6 @@ fn is_valid_encoding_name(name: &[u8]) -> bool {
         name,
         b"WinAnsiEncoding" | b"MacRomanEncoding" | b"MacExpertEncoding"
     )
-}
-
-/// 31-006: Fonts must have a `ToUnicode` `CMap` or a recognized encoding
-/// so that text content can be mapped to Unicode.
-#[allow(clippy::too_many_lines)]
-fn check_tounicode(
-    doc: &lopdf::Document,
-    font_dict: &lopdf::Dictionary,
-    font_label: &str,
-    location: Option<&Location>,
-    results: &mut Vec<CheckResult>,
-) {
-    let has_tounicode = font_dict.get(b"ToUnicode").is_ok();
-
-    if has_tounicode {
-        results.push(CheckResult {
-            rule_id: "31-027".to_string(),
-            checkpoint: 31,
-            description: format!("Font /{font_label} has ToUnicode CMap"),
-            severity: Severity::Info,
-            outcome: CheckOutcome::Pass,
-        });
-        return;
-    }
-
-    // Check for known encodings that provide implicit Unicode mapping
-    let has_known_encoding = font_dict
-        .get_deref(b"Encoding", doc)
-        .ok()
-        .is_some_and(|enc| {
-            // Named encodings that have well-defined Unicode mappings
-            if let Ok(name) = enc.as_name() {
-                matches!(
-                    name,
-                    b"WinAnsiEncoding" | b"MacRomanEncoding" | b"MacExpertEncoding"
-                )
-            } else {
-                // Dictionary encoding with /BaseEncoding
-                enc.as_dict()
-                    .ok()
-                    .and_then(|d| d.get(b"BaseEncoding").ok())
-                    .and_then(|o| o.as_name().ok())
-                    .is_some_and(|n| {
-                        matches!(
-                            n,
-                            b"WinAnsiEncoding" | b"MacRomanEncoding" | b"MacExpertEncoding"
-                        )
-                    })
-            }
-        });
-
-    // Type0 (composite) fonts: check if they have an alternative Unicode mapping.
-    // Identity-H/Identity-V CMaps combined with CIDToGIDMap provide implicit
-    // Unicode mapping via glyph indices, so explicit ToUnicode is not required.
-    let is_composite = font_dict
-        .get_deref(b"Subtype", doc)
-        .ok()
-        .and_then(|o| o.as_name().ok())
-        .is_some_and(|n| n == b"Type0");
-
-    if is_composite {
-        // Per PDF/UA-1 clause 7.21.7, composite fonts using well-known Adobe CID
-        // character collections (Japan1, GB1, CNS1, Korea1) do NOT need an explicit
-        // ToUnicode CMap — these collections have published CID-to-Unicode mappings.
-        // See veraPDF test 7.21.7-t01-pass-a.pdf which validates this.
-        let has_known_cid_collection = font_dict
-            .get_deref(b"DescendantFonts", doc)
-            .ok()
-            .and_then(|o| o.as_array().ok())
-            .and_then(|arr| arr.first())
-            .and_then(|desc| {
-                desc.as_reference()
-                    .ok()
-                    .and_then(|r| doc.get_object(r).ok())
-                    .and_then(|o| o.as_dict().ok())
-                    .or_else(|| desc.as_dict().ok())
-            })
-            .and_then(|dd| {
-                let csi_obj = dd.get(b"CIDSystemInfo").ok()?;
-
-                if let Ok(r) = csi_obj.as_reference() {
-                    doc.get_object(r).ok()?.as_dict().ok()
-                } else {
-                    csi_obj.as_dict().ok()
-                }
-            })
-            .is_some_and(|csi| {
-                let registry = csi
-                    .get(b"Registry")
-                    .ok()
-                    .and_then(|o| o.as_str().ok())
-                    .unwrap_or(b"");
-                let ordering = csi
-                    .get(b"Ordering")
-                    .ok()
-                    .and_then(|o| o.as_str().ok())
-                    .unwrap_or(b"");
-                registry == b"Adobe" && matches!(ordering, b"Japan1" | b"GB1" | b"CNS1" | b"Korea1")
-            });
-
-        if has_known_cid_collection {
-            results.push(CheckResult {
-                rule_id: "31-027".to_string(),
-                checkpoint: 31,
-                description: format!(
-                    "Font /{font_label} uses Adobe CID collection with known Unicode mapping"
-                ),
-                severity: Severity::Info,
-                outcome: CheckOutcome::Pass,
-            });
-        } else {
-            results.push(CheckResult {
-                rule_id: "31-027".to_string(),
-                checkpoint: 31,
-                description: format!("Font /{font_label} (composite) missing ToUnicode CMap"),
-                severity: Severity::Error,
-                outcome: CheckOutcome::Fail {
-                    message: format!(
-                        "Composite font /{font_label} must have a ToUnicode CMap for Unicode mapping"
-                    ),
-                    location: location.cloned(),
-                },
-            });
-        }
-    } else if !has_known_encoding {
-        results.push(CheckResult {
-            rule_id: "31-027".to_string(),
-            checkpoint: 31,
-            description: format!(
-                "Font /{font_label} missing ToUnicode and has no standard encoding"
-            ),
-            severity: Severity::Error,
-            outcome: CheckOutcome::Fail {
-                message: format!(
-                    "Font /{font_label} has neither ToUnicode CMap nor a standard encoding — text cannot be reliably mapped to Unicode"
-                ),
-                location: location.cloned(),
-            },
-        });
-    } else {
-        results.push(CheckResult {
-            rule_id: "31-027".to_string(),
-            checkpoint: 31,
-            description: format!("Font /{font_label} uses standard encoding (implicit Unicode)"),
-            severity: Severity::Info,
-            outcome: CheckOutcome::Pass,
-        });
-    }
 }
 
 /// 31-002: `CIDFontType2` fonts must have a /`CIDToGIDMap` entry.
@@ -1161,87 +921,6 @@ fn extract_cmap_wmode(stream: &str) -> Option<i64> {
         let after = stream[pos + 6..].trim_start();
         after.split_whitespace().next()?.parse::<i64>().ok()
     })
-}
-
-/// Scaffolding for font-program-level checks using `ttf-parser`.
-///
-/// Parses embedded TrueType font data but does not currently emit rule outcomes.
-/// Planned checks (not yet enforced due to high false-positive rates):
-/// - 31-008: TrueType `/Widths` must match actual glyph widths in `hmtx` table
-/// - 31-009: Symbolic flag must match font's actual encoding (cmap table)
-/// - 31-010: Type1 `/CharSet` must match glyphs in the font program
-#[allow(clippy::too_many_lines, dead_code)]
-fn check_font_program(
-    doc: &lopdf::Document,
-    font_dict: &lopdf::Dictionary,
-    _font_label: &str,
-    _location: Option<&Location>,
-    _results: &mut Vec<CheckResult>,
-) {
-    let subtype = font_dict
-        .get_deref(b"Subtype", doc)
-        .ok()
-        .and_then(|o| o.as_name().ok())
-        .map(<[u8]>::to_vec);
-
-    // Get FontDescriptor (directly or via DescendantFonts for Type0)
-    let descriptor = if subtype.as_deref() == Some(b"Type0") {
-        font_dict
-            .get_deref(b"DescendantFonts", doc)
-            .ok()
-            .and_then(|o| o.as_array().ok())
-            .and_then(|arr| arr.first())
-            .and_then(|o| {
-                if let Ok(r) = o.as_reference() {
-                    doc.get_object(r).ok()
-                } else {
-                    Some(o)
-                }
-            })
-            .and_then(|o| o.as_dict().ok())
-            .and_then(|d| d.get_deref(b"FontDescriptor", doc).ok())
-            .and_then(|o| o.as_dict().ok())
-    } else {
-        font_dict
-            .get_deref(b"FontDescriptor", doc)
-            .ok()
-            .and_then(|o| o.as_dict().ok())
-    };
-
-    let Some(desc) = descriptor else { return };
-
-    // Try to get embedded font data (FontFile2 = TrueType)
-    let font_data = desc
-        .get(b"FontFile2")
-        .ok()
-        .and_then(|o| o.as_reference().ok())
-        .and_then(|r| doc.get_object(r).ok())
-        .and_then(|o| o.as_stream().ok())
-        .and_then(|s| s.decompressed_content().ok());
-
-    let Some(data) = font_data else { return };
-
-    // Parse with ttf-parser
-    let Ok(face) = ttf_parser::Face::parse(&data, 0) else {
-        return;
-    };
-
-    let flags = desc
-        .get(b"Flags")
-        .ok()
-        .and_then(|o| o.as_i64().ok())
-        .unwrap_or(0);
-    let is_symbolic = flags & 0x04 != 0;
-
-    // --- 31-009: Symbolic flag vs actual cmap encoding ---
-    // A font flagged as Symbolic should use a platform-specific encoding (not Unicode).
-    // If the font has a Unicode cmap subtable AND standard text content, the Symbolic
-    // flag is likely wrong.
-    // Symbolic flag analysis is available but not enforced:
-    // Too many valid PDFs use Symbolic + no Encoding + standard cmap.
-    // The 7.2-t42/t43 test files need deeper glyph-to-Unicode mapping validation
-    // that is beyond what the Symbolic flag alone can detect.
-    let _ = (is_symbolic, &face);
 }
 
 /// Remove duplicate results for the same font appearing on multiple pages.

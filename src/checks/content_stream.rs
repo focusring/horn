@@ -10,7 +10,6 @@ use lopdf::content::Content;
 /// - 01-003: Artifact content nested inside tagged content
 /// - 01-004: Tagged content nested inside Artifact content
 /// - 01-005: Content not wrapped in marked content sequences (untagged text/images)
-/// - 31-030: Text showing operators that reference the .notdef glyph (CID 0)
 pub struct ContentStreamChecks;
 
 impl Check for ContentStreamChecks {
@@ -23,7 +22,7 @@ impl Check for ContentStreamChecks {
     }
 
     fn description(&self) -> &'static str {
-        "Content stream: untagged content, artifact nesting, XObject tagging"
+        "Content stream: untagged content, artifact nesting"
     }
 
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>> {
@@ -36,7 +35,6 @@ impl Check for ContentStreamChecks {
         let mut untagged_xobject_ops = 0u32;
         let mut artifact_in_tagged = 0u32;
         let mut tagged_in_artifact = 0u32;
-        let mut notdef_usage = 0u32;
         let mut pages_analyzed = 0u32;
 
         for (page_num, page_id) in &pages {
@@ -57,7 +55,6 @@ impl Check for ContentStreamChecks {
             untagged_xobject_ops += page_result.untagged_xobject_ops;
             artifact_in_tagged += page_result.artifact_inside_tagged;
             tagged_in_artifact += page_result.tagged_inside_artifact;
-            notdef_usage += page_result.notdef_glyph_usage;
         }
 
         // 01-005: Untagged content detection
@@ -100,24 +97,6 @@ impl Check for ContentStreamChecks {
                 outcome: CheckOutcome::Fail {
                     message: format!(
                         "{untagged_xobject_ops} XObject (Do) operation(s) are not inside BMC/BDC..EMC marked content — images and form XObjects must be tagged or marked as artifacts"
-                    ),
-                    location: None,
-                },
-            });
-        }
-
-        // 31-030: .notdef glyph usage (CID 0 / \x00\x00 in text strings)
-        if notdef_usage > 0 {
-            results.push(CheckResult {
-                rule_id: "31-030".to_string(),
-                checkpoint: 31,
-                description: format!(
-                    "{notdef_usage} text operation(s) reference the .notdef glyph (CID 0)"
-                ),
-                severity: Severity::Error,
-                outcome: CheckOutcome::Fail {
-                    message: format!(
-                        "{notdef_usage} text operation(s) use CID 0 (.notdef glyph) — all glyphs must map to valid characters"
                     ),
                     location: None,
                 },
@@ -170,7 +149,6 @@ struct PageAnalysis {
     untagged_xobject_ops: u32,
     artifact_inside_tagged: u32,
     tagged_inside_artifact: u32,
-    notdef_glyph_usage: u32,
 }
 
 /// Analyze a page's content stream operations for marked content coverage.
@@ -181,7 +159,6 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
         untagged_xobject_ops: 0,
         artifact_inside_tagged: 0,
         tagged_inside_artifact: 0,
-        notdef_glyph_usage: 0,
     };
 
     // Track marked content nesting.
@@ -239,12 +216,6 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
                 if mc_stack.is_empty() {
                     result.untagged_text_ops += 1;
                 }
-                // Check for .notdef glyph (CID 0 = \x00\x00) in string operands
-                for operand in &op.operands {
-                    if has_notdef_glyph(operand) {
-                        result.notdef_glyph_usage += 1;
-                    }
-                }
             }
 
             // XObject invocation — only flag image XObjects outside marked content.
@@ -270,75 +241,4 @@ fn analyze_page_content(ops: &[lopdf::content::Operation], _page_num: u32) -> Pa
     }
 
     result
-}
-
-/// Check if a text operand contains the .notdef glyph (CID 0 = `\x00\x00`).
-///
-/// In CID fonts, CID 0 is always the .notdef glyph. A 2-byte string starting
-/// with `\x00\x00` indicates .notdef usage. For TJ arrays, check each string element.
-fn has_notdef_glyph(operand: &lopdf::Object) -> bool {
-    match operand {
-        lopdf::Object::String(bytes, _) => {
-            // Check for \x00\x00 (CID 0) in 2-byte aligned positions
-            let data = bytes.as_slice();
-            if data.len() >= 2 {
-                let mut i = 0;
-                while i + 1 < data.len() {
-                    if data[i] == 0 && data[i + 1] == 0 {
-                        return true;
-                    }
-                    i += 2;
-                }
-            }
-            false
-        }
-        lopdf::Object::Array(arr) => {
-            // TJ array: mix of strings and numbers
-            arr.iter().any(|item| {
-                if let lopdf::Object::String(bytes, _) = item {
-                    let data = bytes.as_slice();
-                    if data.len() >= 2 {
-                        let mut i = 0;
-                        while i + 1 < data.len() {
-                            if data[i] == 0 && data[i + 1] == 0 {
-                                return true;
-                            }
-                            i += 2;
-                        }
-                    }
-                }
-                false
-            })
-        }
-        _ => false,
-    }
-}
-
-/// 30-002: Check for Reference `XObjects` which are forbidden in PDF/UA.
-#[allow(dead_code)]
-fn check_reference_xobjects(doc: &lopdf::Document, results: &mut Vec<CheckResult>) {
-    for obj in doc.objects.values() {
-        let Ok(stream) = obj.as_stream() else {
-            continue;
-        };
-
-        let dict = &stream.dict;
-
-        let is_form = dict.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) == Some(b"Form");
-
-        if is_form && dict.get(b"Ref").is_ok() {
-            results.push(CheckResult {
-                rule_id: "30-001".to_string(),
-                checkpoint: 30,
-                description: "Reference XObject found — forbidden in PDF/UA".to_string(),
-                severity: Severity::Error,
-                outcome: CheckOutcome::Fail {
-                    message:
-                        "Form XObject with /Ref key (Reference XObject) is not allowed in PDF/UA"
-                            .to_string(),
-                    location: None,
-                },
-            });
-        }
-    }
 }

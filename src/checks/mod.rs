@@ -5,6 +5,7 @@ pub mod content_stream;
 pub mod dict_entries;
 pub mod embedded_files;
 pub mod file_syntax;
+pub mod font_program;
 pub mod fonts;
 pub mod headings;
 pub mod images;
@@ -67,6 +68,7 @@ impl CheckRegistry {
             Box::new(structure::StructureChecks),
             Box::new(dict_entries::DictEntryChecks),
             Box::new(fonts::FontChecks),
+            Box::new(font_program::FontProgramChecks),
             Box::new(headings::HeadingChecks),
             Box::new(tables::TableChecks),
             Box::new(images::ImageChecks),

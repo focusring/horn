@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 pub struct HornDocument {
     oxide: pdf_oxide::PdfDocument,
     lopdf: OnceCell<lopdf::Document>,
+    /// Per-font character-code usage, computed on first request.
+    font_usage: OnceCell<crate::content::FontUsageMap>,
     /// Raw PDF bytes, kept for lazy lopdf init and for byte-level checks.
     pdf_bytes: Option<Vec<u8>>,
     path: PathBuf,
@@ -44,6 +46,7 @@ impl HornDocument {
         Ok(Self {
             oxide,
             lopdf: cell,
+            font_usage: OnceCell::new(),
             pdf_bytes: Some(bytes),
             path: path.to_path_buf(),
             standard,
@@ -66,6 +69,7 @@ impl HornDocument {
         Ok(Self {
             oxide,
             lopdf: OnceCell::new(),
+            font_usage: OnceCell::new(),
             pdf_bytes: Some(bytes),
             path: PathBuf::from(name),
             standard,
@@ -104,6 +108,13 @@ impl HornDocument {
                 panic!("lopdf not initialized and no bytes available")
             }
         })
+    }
+
+    /// Character codes used with every font, over all content streams
+    /// (pages, Form XObjects, annotation appearances). Computed once.
+    pub fn font_usage(&self) -> &crate::content::FontUsageMap {
+        self.font_usage
+            .get_or_init(|| crate::content::collect_font_usage(self.lopdf()))
     }
 
     /// Get the document catalog dictionary via lopdf.
