@@ -18,6 +18,10 @@ impl Check for MetadataChecks {
         6
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["06-002", "06-003", "07-001", "07-002", "11-001"]
+    }
+
     fn description(&self) -> &'static str {
         "Metadata: XMP, title, language, PDF/UA identifier"
     }

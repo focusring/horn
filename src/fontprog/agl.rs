@@ -1,7 +1,7 @@
 //! Adobe Glyph List (AGL): glyph name → Unicode, used to validate
 //! `/Differences` arrays in non-symbolic TrueType fonts (Matterhorn 31-022) and
 //! to map glyph names to Unicode for TrueType `cmap` lookups (31-018) and for the
-//! ToUnicode exemptions of 31-027.
+//! `ToUnicode` exemptions of 31-027.
 //!
 //! Source: <https://github.com/adobe-type-tools/agl-aglfn> (glyphlist.txt),
 //! Copyright 2002-2019 Adobe, BSD-3-Clause. Entries are sorted bytewise by name
@@ -18,8 +18,7 @@ pub fn is_agl_name(name: &[u8]) -> bool {
 /// Unicode code point of an AGL glyph name (first code point for ligature-like
 /// multi-code entries).
 pub fn lookup(name: &[u8]) -> Option<u32> {
-    AGL
-        .binary_search_by(|probe| probe.0.as_bytes().cmp(name))
+    AGL.binary_search_by(|probe| probe.0.as_bytes().cmp(name))
         .ok()
         .map(|i| AGL[i].1)
 }

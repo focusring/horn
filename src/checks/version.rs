@@ -21,6 +21,10 @@ impl Check for VersionChecks {
         5
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["06-001", "06-002"]
+    }
+
     fn description(&self) -> &'static str {
         "Version identification: PDF/UA identifier and XMP extension schema"
     }

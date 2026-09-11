@@ -10,11 +10,11 @@ use std::collections::HashMap;
 pub struct Type1Font {
     /// Glyph names in `/CharStrings` order, with their decrypted charstrings.
     charstrings: Vec<(String, Vec<u8>)>,
-    /// Built-in encoding: code → glyph name (None for StandardEncoding).
+    /// Built-in encoding: code → glyph name (None for `StandardEncoding`).
     builtin_encoding: Option<HashMap<u8, String>>,
     /// True when the cleartext declares `/Encoding StandardEncoding def`.
     pub uses_standard_encoding: bool,
-    /// FontMatrix scale (1/1000 for almost every Type 1 font).
+    /// `FontMatrix` scale (1/1000 for almost every Type 1 font).
     font_matrix_scale: f64,
 }
 
@@ -77,7 +77,10 @@ impl Type1Font {
 
     /// Advance width of a glyph in 1/1000 text space units, from `hsbw`/`sbw`.
     pub fn advance_width(&self, name: &[u8]) -> Option<f64> {
-        let (_, cs) = self.charstrings.iter().find(|(n, _)| n.as_bytes() == name)?;
+        let (_, cs) = self
+            .charstrings
+            .iter()
+            .find(|(n, _)| n.as_bytes() == name)?;
         let wx = charstring_width(cs)?;
         Some(wx * self.font_matrix_scale * 1000.0)
     }
@@ -135,10 +138,15 @@ impl Type1Font {
         let mut pos = cs_pos + 12;
         // Entries: /name len RD <bin> ND  (until `end`)
         loop {
-            let Some(slash) = find(&private[pos..], b"/") else { break };
+            let Some(slash) = find(&private[pos..], b"/") else {
+                break;
+            };
             let name_start = pos + slash + 1;
             let mut name_end = name_start;
-            while name_end < private.len() && !private[name_end].is_ascii_whitespace() && private[name_end] != b'{' {
+            while name_end < private.len()
+                && !private[name_end].is_ascii_whitespace()
+                && private[name_end] != b'{'
+            {
                 name_end += 1;
             }
             let name = String::from_utf8_lossy(&private[name_start..name_end]).into_owned();
@@ -155,7 +163,9 @@ impl Type1Font {
                 p += 1;
             }
             p += 1; // single space after RD
-            let Some(bin) = private.get(p..p + len) else { break };
+            let Some(bin) = private.get(p..p + len) else {
+                break;
+            };
             let cs = decrypt(bin, CHARSTRING_R, len_iv);
             self.charstrings.push((name, cs));
             pos = p + len;
@@ -216,7 +226,12 @@ fn charstring_width(cs: &[u8]) -> Option<f64> {
                 i += 2;
             }
             255 => {
-                let v = i32::from_be_bytes([*cs.get(i + 1)?, *cs.get(i + 2)?, *cs.get(i + 3)?, *cs.get(i + 4)?]);
+                let v = i32::from_be_bytes([
+                    *cs.get(i + 1)?,
+                    *cs.get(i + 2)?,
+                    *cs.get(i + 3)?,
+                    *cs.get(i + 4)?,
+                ]);
                 stack.push(f64::from(v));
                 i += 5;
             }
@@ -238,7 +253,8 @@ fn unwrap_pfb(data: &[u8]) -> Vec<u8> {
         if kind == 3 {
             break;
         }
-        let len = u32::from_le_bytes([data[pos + 2], data[pos + 3], data[pos + 4], data[pos + 5]]) as usize;
+        let len = u32::from_le_bytes([data[pos + 2], data[pos + 3], data[pos + 4], data[pos + 5]])
+            as usize;
         pos += 6;
         let end = (pos + len).min(data.len());
         out.extend_from_slice(&data[pos..end]);
@@ -251,7 +267,9 @@ fn decrypt(data: &[u8], mut r: u16, skip: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len());
     for &c in data {
         let p = c ^ (r >> 8) as u8;
-        r = (u16::from(c).wrapping_add(r)).wrapping_mul(C1).wrapping_add(C2);
+        r = (u16::from(c).wrapping_add(r))
+            .wrapping_mul(C1)
+            .wrapping_add(C2);
         out.push(p);
     }
     if out.len() > skip {
@@ -354,7 +372,9 @@ mod tests {
         let mut enc = Vec::new();
         for &p in plain {
             let c = p ^ (r >> 8) as u8;
-            r = (u16::from(c).wrapping_add(r)).wrapping_mul(C1).wrapping_add(C2);
+            r = (u16::from(c).wrapping_add(r))
+                .wrapping_mul(C1)
+                .wrapping_add(C2);
             enc.push(c);
         }
         assert_eq!(decrypt(&enc, EEXEC_R, 4), b"hello /CharStrings");

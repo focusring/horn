@@ -8,6 +8,7 @@ pub mod file_syntax;
 pub mod font_program;
 pub mod fonts;
 pub mod headings;
+pub mod human_review;
 pub mod images;
 pub mod language;
 pub mod lists;
@@ -21,6 +22,7 @@ pub mod structure;
 pub mod tables;
 pub mod version;
 pub mod xfa;
+pub mod xobjects;
 
 use crate::document::HornDocument;
 use crate::model::{CheckResult, Standard};
@@ -36,6 +38,12 @@ pub trait Check: Send + Sync {
 
     /// Human-readable description of what this check validates.
     fn description(&self) -> &'static str;
+
+    /// The rule ids this check can emit — Matterhorn failure-condition indices
+    /// (`"28-010"`) or Horn extension ids (`"15-x04"`). Used by `horn coverage`.
+    fn rules(&self) -> &'static [&'static str] {
+        &[]
+    }
 
     /// Whether this check is fully machine-checkable.
     fn is_machine_checkable(&self) -> bool {
@@ -84,6 +92,8 @@ impl CheckRegistry {
             Box::new(content_stream::ContentStreamChecks),
             Box::new(nesting::NestingChecks),
             Box::new(annot_struct::AnnotStructChecks),
+            Box::new(xobjects::XObjectChecks),
+            Box::new(human_review::HumanReviewChecks),
         ];
         Self { checks }
     }
@@ -118,6 +128,20 @@ impl CheckRegistry {
     /// Iterate over all registered checks.
     pub fn checks(&self) -> &[Box<dyn Check>] {
         &self.checks
+    }
+}
+
+impl CheckRegistry {
+    /// All rule ids emitted by the registered checks, sorted and deduplicated.
+    pub fn implemented_rules(&self) -> Vec<&'static str> {
+        let mut ids: Vec<&'static str> = self
+            .checks
+            .iter()
+            .flat_map(|c| c.rules().iter().copied())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
     }
 }
 

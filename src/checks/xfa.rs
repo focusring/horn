@@ -8,7 +8,7 @@ use anyhow::Result;
 /// PDF/UA-1 clause 7.15 forbids *dynamic* XFA forms: the XFA `config` packet
 /// must not contain a `dynamicRender` element with the value `required`
 /// (Matterhorn 25-001). Static XFA (`dynamicRender` absent or `forbidden`) is
-/// permitted, although the AcroForm fields still have to satisfy checkpoint 28.
+/// permitted, although the `AcroForm` fields still have to satisfy checkpoint 28.
 pub struct XfaCheck;
 
 impl Check for XfaCheck {
@@ -18,6 +18,10 @@ impl Check for XfaCheck {
 
     fn checkpoint(&self) -> u8 {
         25
+    }
+
+    fn rules(&self) -> &'static [&'static str] {
+        &["25-001"]
     }
 
     fn description(&self) -> &'static str {
@@ -120,9 +124,13 @@ fn xfa_requires_dynamic_render(xml: &str) -> bool {
     let mut pos = 0;
     while let Some(idx) = lower[pos..].find("dynamicrender") {
         let start = pos + idx;
-        let Some(gt) = lower[start..].find('>') else { break };
+        let Some(gt) = lower[start..].find('>') else {
+            break;
+        };
         let value_start = start + gt + 1;
-        let Some(lt) = lower[value_start..].find('<') else { break };
+        let Some(lt) = lower[value_start..].find('<') else {
+            break;
+        };
         let value = lower[value_start..value_start + lt].trim();
         if value == "required" {
             return true;

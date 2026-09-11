@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 pub struct HornDocument {
     oxide: pdf_oxide::PdfDocument,
     lopdf: OnceCell<lopdf::Document>,
-    /// Per-font character-code usage, computed on first request.
-    font_usage: OnceCell<crate::content::FontUsageMap>,
+    /// Content-stream usage (fonts, Form `XObjects`), computed on first request.
+    content_usage: OnceCell<crate::content::ContentUsage>,
     /// Raw PDF bytes, kept for lazy lopdf init and for byte-level checks.
     pdf_bytes: Option<Vec<u8>>,
     path: PathBuf,
@@ -29,8 +29,8 @@ impl HornDocument {
     /// (see `raw_bytes`).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open(path: &Path) -> Result<Self> {
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("failed to read: {}", path.display()))?;
+        let bytes =
+            std::fs::read(path).with_context(|| format!("failed to read: {}", path.display()))?;
 
         let oxide = pdf_oxide::PdfDocument::from_bytes(bytes.clone())
             .map_err(|e| anyhow::anyhow!("pdf_oxide failed to open: {e}"))?;
@@ -46,7 +46,7 @@ impl HornDocument {
         Ok(Self {
             oxide,
             lopdf: cell,
-            font_usage: OnceCell::new(),
+            content_usage: OnceCell::new(),
             pdf_bytes: Some(bytes),
             path: path.to_path_buf(),
             standard,
@@ -69,7 +69,7 @@ impl HornDocument {
         Ok(Self {
             oxide,
             lopdf: OnceCell::new(),
-            font_usage: OnceCell::new(),
+            content_usage: OnceCell::new(),
             pdf_bytes: Some(bytes),
             path: PathBuf::from(name),
             standard,
@@ -110,11 +110,17 @@ impl HornDocument {
         })
     }
 
-    /// Character codes used with every font, over all content streams
-    /// (pages, Form XObjects, annotation appearances). Computed once.
+    /// Content-stream usage over all pages, Form `XObjects` and annotation
+    /// appearances: character codes per font, Form `XObject` paint counts.
+    /// Computed once per document.
+    pub fn content_usage(&self) -> &crate::content::ContentUsage {
+        self.content_usage
+            .get_or_init(|| crate::content::collect_content_usage(self.lopdf()))
+    }
+
+    /// Character codes used with every font (see `content_usage`).
     pub fn font_usage(&self) -> &crate::content::FontUsageMap {
-        self.font_usage
-            .get_or_init(|| crate::content::collect_font_usage(self.lopdf()))
+        &self.content_usage().fonts
     }
 
     /// Get the document catalog dictionary via lopdf.

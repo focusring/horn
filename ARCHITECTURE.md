@@ -9,7 +9,7 @@ Horn is a PDF/UA accessibility checker based on the Matterhorn Protocol. It ship
 │                      horn (core library)                     │
 │  validate_bytes() / validate_file() → FileReport             │
 │  ┌──────────┐  ┌──────────┐  ┌───────────────────────────┐  │
-│  │ pdf_oxide│  │  lopdf   │  │ CheckRegistry (22 checks) │  │
+│  │ pdf_oxide│  │  lopdf   │  │ CheckRegistry (25 checks) │  │
 │  │  (fast)  │  │  (lazy)  │  │ Matterhorn Protocol       │  │
 │  └──────────┘  └──────────┘  └───────────────────────────┘  │
 └──────────┬──────────────┬──────────────────┬────────────────┘
@@ -74,19 +74,35 @@ pub struct HornDocument {
 
 ### Check System
 
-22 checks implementing the `Check` trait, registered in `CheckRegistry`:
+25 checks implementing the `Check` trait, registered in `CheckRegistry`:
 
 ```rust
 pub trait Check: Send + Sync {
-    fn id(&self) -> &'static str;           // e.g., "06-001"
+    fn id(&self) -> &'static str;           // module id, e.g. "31-font-program"
     fn checkpoint(&self) -> u8;             // Matterhorn checkpoint (1-31)
     fn description(&self) -> &'static str;
+    fn rules(&self) -> &'static [&'static str]; // Matterhorn ids this check emits
     fn supports(&self, standard: Standard) -> bool;
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>>;
 }
 ```
 
-Checks cover: structure, metadata, fonts, headings, tables, images, annotations, language, lists, math, notes, security, content streams, embedded files, optional content, XFA, nesting, and more.
+Every `CheckResult.rule_id` is an official Matterhorn Protocol 1.1 index
+(`"28-010"`) or a Horn extension id (`"15-x04"`). The catalogue of all 136
+conditions lives in `src/matterhorn.rs`; `CheckRegistry::implemented_rules()`
+and the `horn coverage` command derive the coverage matrix from it.
+
+Checks cover: file syntax, structure, metadata, language, fonts (dictionary
+and font-program level), headings, tables, lists, images, math, notes,
+annotations, optional content, embedded files, XFA, security, XObjects, and a
+`human_review` check that reports the 48 human-judgment conditions applicable
+to the document as `NeedsReview`.
+
+### Supporting modules
+
+- `src/matterhorn.rs` — the Matterhorn 1.1 failure-condition catalogue (id, checkpoint, clause, machine/human).
+- `src/content/` — content-stream analysis shared by checks: which character codes each font shows (pages, Form XObjects, annotation appearances), text rendering modes, Form XObject paint counts; plus CMap parsers (encoding CMaps and ToUnicode).
+- `src/fontprog/` — dependency-free parsers for embedded font programs: TrueType/OpenType (via `ttf-parser`), CFF/Type1C, Type 1 (eexec, charstrings), the Adobe Glyph List and the predefined simple-font encodings.
 
 ### Data Model
 
@@ -97,7 +113,7 @@ FileReport
 ├── error: Option<String>
 └── results: Vec<CheckResult>
     └── CheckResult
-        ├── rule_id: String         ("06-001")
+        ├── rule_id: String         ("28-010", Matterhorn index)
         ├── checkpoint: u8          (6)
         ├── description: String
         ├── severity: Severity      (Error | Warning | Info)
@@ -130,7 +146,7 @@ Files/directories (clap)
   → collect_pdf_paths() [walkdir if --recurse]
   → validate_files_parallel() [rayon par_iter]
     → HornDocument::open(path)      # eager, both parsers
-    → CheckRegistry::run_all()      # 22 checks
+    → CheckRegistry::run_all()      # 25 checks
     → FileReport
   → output::write_report()          # text/json/sarif/junit
   → stdout or file
@@ -195,7 +211,7 @@ User clicks "Choose & Validate PDFs"
 | Desktop (Tauri, release) | ~0.4s | ~0.07s | Same — direct Rust call |
 | Web (WASM) | ~3s | ~0.07s | zlib decompression slow in WASM |
 
-The WASM bottleneck is `lopdf`'s eager stream decompression running in single-threaded WASM without SIMD. The lazy lopdf optimization helps by deferring this cost, but it's still triggered when lopdf-dependent checks run (20 of 22 checks).
+The WASM bottleneck is `lopdf`'s eager stream decompression running in single-threaded WASM without SIMD. The lazy lopdf optimization helps by deferring this cost, but it's still triggered when lopdf-dependent checks run (23 of 25 checks).
 
 ## File Structure
 
@@ -205,15 +221,20 @@ The WASM bottleneck is `lopdf`'s eager stream decompression running in single-th
 ├── src/
 │   ├── lib.rs                      # Public API: validate_bytes, validate_file
 │   ├── main.rs                     # CLI binary (clap, output formatting)
-│   ├── document.rs                 # HornDocument (dual parser, lazy lopdf)
+│   ├── document.rs                 # HornDocument (dual parser, lazy lopdf, cached content usage)
 │   ├── model.rs                    # Standard, Severity, CheckResult, FileReport
+│   ├── matterhorn.rs               # Matterhorn 1.1 condition catalogue
+│   ├── content/                    # Content-stream font usage + CMap parsers
+│   ├── fontprog/                   # TrueType / CFF / Type 1 font program parsers, AGL, encodings
 │   ├── checks/
 │   │   ├── mod.rs                  # Check trait + CheckRegistry
 │   │   ├── baseline.rs             # pdf_oxide built-in UA-1 validation
-│   │   ├── fonts.rs                # Font embedding, ToUnicode, CMap
-│   │   ├── tables.rs               # Table structure (TH/TD/Headers/Scope)
+│   │   ├── fonts.rs                # Font dictionaries: embedding, CMaps, encodings
+│   │   ├── font_program.rs         # Font programs: glyphs, CharSet/CIDSet, widths, cmaps, ToUnicode
+│   │   ├── human_review.rs         # Manual-review items for human-judgment conditions
+│   │   ├── tables.rs               # Table structure (TH/TD/Headers/Scope/grid)
 │   │   ├── ... (19 more)
-│   │   └── xfa.rs                  # XFA form detection
+│   │   └── xobjects.rs             # Form XObject paint counts
 │   └── output/
 │       ├── mod.rs                  # OutputFormat enum
 │       ├── text.rs                 # Human-readable output

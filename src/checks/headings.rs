@@ -18,6 +18,10 @@ impl Check for HeadingChecks {
         14
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["14-002", "14-003", "14-006", "14-007"]
+    }
+
     fn description(&self) -> &'static str {
         "Headings: hierarchy, no skipped levels"
     }

@@ -1,16 +1,25 @@
-//! Parsers for the two flavours of CMap that appear in PDF files:
+//! Parsers for the two flavours of `CMap` that appear in PDF files:
 //!
-//! - **Encoding CMaps** embedded as the `/Encoding` of a Type 0 font
+//! - **Encoding `CMaps`** embedded as the `/Encoding` of a Type 0 font
 //!   (`begincodespacerange`, `begincidrange`, `begincidchar`, `usecmap`), used
 //!   to split byte strings into character codes and map codes to CIDs.
-//! - **ToUnicode CMaps** (`beginbfchar`, `beginbfrange`), used to map codes to
+//! - **`ToUnicode` `CMaps`** (`beginbfchar`, `beginbfrange`), used to map codes to
 //!   Unicode.
 //!
 //! Both share the small PostScript-like token syntax handled by [`tokenize`].
 
+// CMap numbers are small non-negative integers by construction (codes, CIDs, byte lengths).
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
+    clippy::too_many_lines
+)]
+
 use std::collections::BTreeMap;
 
-/// A token of CMap syntax.
+/// A token of `CMap` syntax.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     /// `<hex>` string with its byte length.
@@ -25,7 +34,7 @@ pub enum Token {
     Delim(&'static str),
 }
 
-/// Tokenize CMap / PostScript syntax (strings in parentheses are skipped).
+/// Tokenize `CMap` / PostScript syntax (strings in parentheses are skipped).
 pub fn tokenize(data: &[u8]) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut i = 0;
@@ -117,7 +126,9 @@ pub fn tokenize(data: &[u8]) -> Vec<Token> {
                 while j < data.len() && !is_delim_or_ws(data[j]) {
                     j += 1;
                 }
-                tokens.push(Token::Name(String::from_utf8_lossy(&data[i + 1..j]).into_owned()));
+                tokens.push(Token::Name(
+                    String::from_utf8_lossy(&data[i + 1..j]).into_owned(),
+                ));
                 i = j;
             }
             c if c.is_ascii_whitespace() => i += 1,
@@ -140,7 +151,11 @@ pub fn tokenize(data: &[u8]) -> Vec<Token> {
 }
 
 fn is_delim_or_ws(b: u8) -> bool {
-    b.is_ascii_whitespace() || matches!(b, b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'(' | b')' | b'%')
+    b.is_ascii_whitespace()
+        || matches!(
+            b,
+            b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'(' | b')' | b'%'
+        )
 }
 
 /// A byte-length-aware codespace range.
@@ -151,22 +166,22 @@ pub struct CodespaceRange {
     pub high: u32,
 }
 
-/// A parsed encoding CMap (code → CID).
+/// A parsed encoding `CMap` (code → CID).
 #[derive(Debug, Clone, Default)]
 pub struct EncodingCMap {
     pub codespaces: Vec<CodespaceRange>,
     /// Single-code mappings.
     pub cid_chars: BTreeMap<(usize, u32), u32>,
-    /// Range mappings: (num_bytes, low, high, first cid).
+    /// Range mappings: (`num_bytes`, low, high, first cid).
     pub cid_ranges: Vec<(usize, u32, u32, u32)>,
     /// `usecmap` target, if any (only predefined names are recorded).
     pub use_cmap: Option<String>,
-    /// `/WMode` declared in the CMap program.
+    /// `/WMode` declared in the `CMap` program.
     pub wmode: Option<i64>,
 }
 
 impl EncodingCMap {
-    /// The Identity-H / Identity-V CMap: two-byte codes, CID = code.
+    /// The Identity-H / Identity-V `CMap`: two-byte codes, CID = code.
     pub fn identity() -> Self {
         Self {
             codespaces: vec![CodespaceRange {
@@ -181,7 +196,7 @@ impl EncodingCMap {
         }
     }
 
-    /// Parse an embedded CMap program.
+    /// Parse an embedded `CMap` program.
     pub fn parse(data: &[u8]) -> Self {
         let tokens = tokenize(data);
         let mut cmap = Self::default();
@@ -209,7 +224,12 @@ impl EncodingCMap {
                     while i + 2 < tokens.len() {
                         match (&tokens[i], &tokens[i + 1], &tokens[i + 2]) {
                             (Token::Hex(lo), Token::Hex(hi), Token::Number(cid)) => {
-                                cmap.cid_ranges.push((lo.len().clamp(1, 4), be_u32(lo), be_u32(hi), *cid as u32));
+                                cmap.cid_ranges.push((
+                                    lo.len().clamp(1, 4),
+                                    be_u32(lo),
+                                    be_u32(hi),
+                                    *cid as u32,
+                                ));
                                 i += 3;
                             }
                             _ => break,
@@ -221,7 +241,8 @@ impl EncodingCMap {
                     while i + 1 < tokens.len() {
                         match (&tokens[i], &tokens[i + 1]) {
                             (Token::Hex(code), Token::Number(cid)) => {
-                                cmap.cid_chars.insert((code.len().clamp(1, 4), be_u32(code)), *cid as u32);
+                                cmap.cid_chars
+                                    .insert((code.len().clamp(1, 4), be_u32(code)), *cid as u32);
                                 i += 2;
                             }
                             _ => break,
@@ -253,7 +274,11 @@ impl EncodingCMap {
                 cmap.codespaces.push(CodespaceRange {
                     num_bytes: n,
                     low: 0,
-                    high: if n >= 4 { u32::MAX } else { (1u32 << (8 * n as u32)) - 1 },
+                    high: if n >= 4 {
+                        u32::MAX
+                    } else {
+                        (1u32 << (8 * n as u32)) - 1
+                    },
                 });
             }
         }
@@ -271,7 +296,12 @@ impl EncodingCMap {
     pub fn split_codes(&self, bytes: &[u8]) -> Vec<(u32, usize)> {
         let mut out = Vec::new();
         let mut i = 0;
-        let min_len = self.codespaces.iter().map(|c| c.num_bytes).min().unwrap_or(1);
+        let min_len = self
+            .codespaces
+            .iter()
+            .map(|c| c.num_bytes)
+            .min()
+            .unwrap_or(1);
         while i < bytes.len() {
             let mut matched = None;
             for n in 1..=4usize {
@@ -315,18 +345,18 @@ impl EncodingCMap {
     }
 }
 
-/// Unicode mapping entries of a ToUnicode CMap: for every code, the mapped
+/// Unicode mapping entries of a `ToUnicode` `CMap`: for every code, the mapped
 /// UTF-16BE code units (empty if the destination string was empty).
 #[derive(Debug, Clone, Default)]
 pub struct ToUnicodeCMap {
     pub chars: BTreeMap<(usize, u32), Vec<u16>>,
-    /// (num_bytes, low, high, first destination code units)
+    /// (`num_bytes`, low, high, first destination code units)
     pub ranges: Vec<(usize, u32, u32, Vec<u16>)>,
     pub codespaces: Vec<CodespaceRange>,
 }
 
 impl ToUnicodeCMap {
-    /// Parse a ToUnicode CMap stream.
+    /// Parse a `ToUnicode` `CMap` stream.
     pub fn parse(data: &[u8]) -> Self {
         let tokens = tokenize(data);
         let mut cmap = Self::default();
@@ -354,13 +384,15 @@ impl ToUnicodeCMap {
                     while i + 1 < tokens.len() {
                         match (&tokens[i], &tokens[i + 1]) {
                             (Token::Hex(src), Token::Hex(dst)) => {
-                                cmap.chars.insert((src.len().clamp(1, 4), be_u32(src)), utf16_units(dst));
+                                cmap.chars
+                                    .insert((src.len().clamp(1, 4), be_u32(src)), utf16_units(dst));
                                 i += 2;
                             }
                             (Token::Hex(src), Token::Name(n)) => {
                                 // dst may be a glyph name (rare); record as empty
                                 let _ = n;
-                                cmap.chars.insert((src.len().clamp(1, 4), be_u32(src)), Vec::new());
+                                cmap.chars
+                                    .insert((src.len().clamp(1, 4), be_u32(src)), Vec::new());
                                 i += 2;
                             }
                             _ => break,
@@ -372,7 +404,12 @@ impl ToUnicodeCMap {
                     while i + 2 < tokens.len() {
                         match (&tokens[i], &tokens[i + 1], &tokens[i + 2]) {
                             (Token::Hex(lo), Token::Hex(hi), Token::Hex(dst)) => {
-                                cmap.ranges.push((lo.len().clamp(1, 4), be_u32(lo), be_u32(hi), utf16_units(dst)));
+                                cmap.ranges.push((
+                                    lo.len().clamp(1, 4),
+                                    be_u32(lo),
+                                    be_u32(hi),
+                                    utf16_units(dst),
+                                ));
                                 i += 3;
                             }
                             (Token::Hex(lo), Token::Hex(hi), Token::Delim("[")) => {
@@ -418,20 +455,23 @@ impl ToUnicodeCMap {
         None
     }
 
-    /// Every destination code-unit sequence in the CMap (chars and range starts),
+    /// Every destination code-unit sequence in the `CMap` (chars and range starts),
     /// for scanning for forbidden values.
     pub fn all_destinations(&self) -> impl Iterator<Item = &Vec<u16>> {
         self.chars.values().chain(self.ranges.iter().map(|r| &r.3))
     }
 
-    /// True if the CMap has no mappings at all.
+    /// True if the `CMap` has no mappings at all.
     pub fn is_empty(&self) -> bool {
         self.chars.is_empty() && self.ranges.is_empty()
     }
 }
 
 fn be_u32(bytes: &[u8]) -> u32 {
-    bytes.iter().take(4).fold(0u32, |acc, b| (acc << 8) | u32::from(*b))
+    bytes
+        .iter()
+        .take(4)
+        .fold(0u32, |acc, b| (acc << 8) | u32::from(*b))
 }
 
 fn utf16_units(bytes: &[u8]) -> Vec<u16> {
@@ -457,7 +497,10 @@ mod tests {
         let c = EncodingCMap::parse(src);
         assert_eq!(c.wmode, Some(1));
         assert_eq!(c.codespaces.len(), 2);
-        assert_eq!(c.split_codes(&[0x20, 0x81, 0x40, 0x80]), vec![(0x20, 1), (0x8140, 2), (0x80, 1)]);
+        assert_eq!(
+            c.split_codes(&[0x20, 0x81, 0x40, 0x80]),
+            vec![(0x20, 1), (0x8140, 2), (0x80, 1)]
+        );
         assert_eq!(c.to_cid(0x21, 1), Some(2));
         assert_eq!(c.to_cid(0x8141, 2), Some(634));
         assert_eq!(c.to_cid(0x80, 1), Some(97));

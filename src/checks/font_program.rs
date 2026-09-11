@@ -6,6 +6,7 @@
 //! | Rule   | Condition |
 //! |--------|-----------|
 //! | 10-001 | a used character code has no Unicode mapping |
+//! | 17-003 | Unicode mapping failures in a document with `<Formula>` content |
 //! | 31-011 | a rendered glyph is missing from the embedded program |
 //! | 31-012 / 31-013 | Type 1 `/CharSet` vs. glyphs in the program |
 //! | 31-014 / 31-015 | CID `/CIDSet` vs. glyphs in the program |
@@ -16,6 +17,14 @@
 //! | 31-027 | missing ToUnicode without a permitted alternative |
 //! | 31-028 / 31-029 | ToUnicode maps to U+0000, U+FEFF or U+FFFE |
 //! | 31-030 | a text-showing operator references the .notdef glyph |
+
+// Character codes, CIDs and glyph ids are bounded by the PDF/font formats (u16/u32 ranges).
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap
+)]
 
 use crate::checks::Check;
 use crate::content::FontUsage;
@@ -36,6 +45,14 @@ impl Check for FontProgramChecks {
 
     fn checkpoint(&self) -> u8 {
         31
+    }
+
+    fn rules(&self) -> &'static [&'static str] {
+        &[
+            "10-001", "17-003", "31-011", "31-012", "31-013", "31-014", "31-015", "31-016",
+            "31-017", "31-018", "31-023", "31-024", "31-025", "31-026", "31-027", "31-028",
+            "31-029", "31-030",
+        ]
     }
 
     fn description(&self) -> &'static str {
@@ -72,6 +89,50 @@ impl Check for FontProgramChecks {
             ctx.run(&mut results);
         }
 
+        // 17-003: Unicode mapping requirements for mathematical expressions
+        // (ISO 14289-1 7.7-2) are the general 10-001 / 31-027 requirements applied
+        // to <Formula> content. When the document contains Formula elements and
+        // any font fails to map to Unicode, report the formula condition too.
+        let has_formula = lopdf.objects.values().any(|o| {
+            o.as_dict()
+                .is_ok_and(|d| d.get(b"S").ok().and_then(|o| o.as_name().ok()) == Some(b"Formula"))
+        });
+        if has_formula {
+            let unicode_failures: Vec<String> = results
+                .iter()
+                .filter(|r| r.is_failure() && matches!(r.rule_id.as_str(), "10-001" | "31-027"))
+                .map(|r| r.description.clone())
+                .collect();
+            if unicode_failures.is_empty() {
+                results.push(CheckResult {
+                    rule_id: "17-003".to_string(),
+                    checkpoint: 17,
+                    description:
+                        "Fonts used in the document map to Unicode (Formula content included)"
+                            .to_string(),
+                    severity: Severity::Info,
+                    outcome: CheckOutcome::Pass,
+                });
+            } else {
+                results.push(CheckResult {
+                    rule_id: "17-003".to_string(),
+                    checkpoint: 17,
+                    description: format!(
+                        "Document contains <Formula> elements and {} font(s) do not meet the Unicode mapping requirements",
+                        unicode_failures.len()
+                    ),
+                    severity: Severity::Error,
+                    outcome: CheckOutcome::Fail {
+                        message: format!(
+                            "<Formula> content cannot be reliably mapped to Unicode: {}",
+                            unicode_failures.join("; ")
+                        ),
+                        location: None,
+                    },
+                });
+            }
+        }
+
         dedup(&mut results);
         Ok(results)
     }
@@ -83,7 +144,7 @@ struct FontContext<'a> {
     font: &'a Dictionary,
     label: String,
     subtype: Vec<u8>,
-    /// The CIDFont dictionary for Type 0 fonts.
+    /// The `CIDFont` dictionary for Type 0 fonts.
     descendant: Option<&'a Dictionary>,
     descriptor: Option<&'a Dictionary>,
     flags: i64,
@@ -93,7 +154,12 @@ struct FontContext<'a> {
 }
 
 impl<'a> FontContext<'a> {
-    fn new(doc: &'a Document, id: ObjectId, font: &'a Dictionary, usage: Option<&'a FontUsage>) -> Self {
+    fn new(
+        doc: &'a Document,
+        id: ObjectId,
+        font: &'a Dictionary,
+        usage: Option<&'a FontUsage>,
+    ) -> Self {
         let subtype = font
             .get(b"Subtype")
             .ok()
@@ -104,8 +170,10 @@ impl<'a> FontContext<'a> {
             .get_deref(b"BaseFont", doc)
             .ok()
             .and_then(|o| o.as_name().ok())
-            .map(|n| String::from_utf8_lossy(n).into_owned())
-            .unwrap_or_else(|| format!("obj {}.{}", id.0, id.1));
+            .map_or_else(
+                || format!("obj {}.{}", id.0, id.1),
+                |n| String::from_utf8_lossy(n).into_owned(),
+            );
         let descendant = if subtype == b"Type0" {
             font.get_deref(b"DescendantFonts", doc)
                 .ok()
@@ -190,14 +258,14 @@ impl<'a> FontContext<'a> {
         }
     }
 
-    fn location(&self) -> Option<Location> {
-        Some(Location {
+    fn location(&self) -> Location {
+        Location {
             page: None,
             element: Some(format!("Font /{}", self.label)),
-        })
+        }
     }
 
-    fn fail(&self, rule: &str, message: String) -> CheckResult {
+    fn fail(&self, rule: &str, message: &str) -> CheckResult {
         CheckResult {
             rule_id: rule.to_string(),
             checkpoint: if rule.starts_with("10-") { 10 } else { 31 },
@@ -205,7 +273,7 @@ impl<'a> FontContext<'a> {
             severity: Severity::Error,
             outcome: CheckOutcome::Fail {
                 message: format!("Font /{}: {message}", self.label),
-                location: self.location(),
+                location: Some(self.location()),
             },
         }
     }
@@ -272,7 +340,7 @@ impl<'a> FontContext<'a> {
             .collect();
         let present: BTreeSet<&[u8]> = program_names
             .iter()
-            .map(|n| n.as_bytes())
+            .map(std::string::String::as_bytes)
             .filter(|n| *n != b".notdef")
             .collect();
 
@@ -290,7 +358,7 @@ impl<'a> FontContext<'a> {
         if !not_listed.is_empty() {
             results.push(self.fail(
                 "31-012",
-                format!(
+                &format!(
                     "{} glyph(s) present in the embedded Type 1 program are not listed in /CharSet: /{}",
                     not_listed.len(),
                     not_listed.iter().take(5).cloned().collect::<Vec<_>>().join(", /")
@@ -300,7 +368,7 @@ impl<'a> FontContext<'a> {
         if !not_present.is_empty() {
             results.push(self.fail(
                 "31-013",
-                format!(
+                &format!(
                     "{} glyph name(s) listed in /CharSet are not present in the embedded Type 1 program: /{}",
                     not_present.len(),
                     not_present.iter().take(5).cloned().collect::<Vec<_>>().join(", /")
@@ -331,7 +399,11 @@ impl<'a> FontContext<'a> {
         let listed: BTreeSet<u32> = cidset
             .iter()
             .enumerate()
-            .flat_map(|(i, byte)| (0..8).filter(move |bit| byte & (0x80 >> bit) != 0).map(move |bit| (i * 8 + bit) as u32))
+            .flat_map(|(i, byte)| {
+                (0..8)
+                    .filter(move |bit| byte & (0x80 >> bit) != 0)
+                    .map(move |bit| (i * 8 + bit) as u32)
+            })
             .collect();
 
         let cid_to_gid = CidToGid::load(self.doc, cid_font);
@@ -372,13 +444,21 @@ impl<'a> FontContext<'a> {
             }
         }
 
-        let not_listed: Vec<u32> = present.iter().filter(|c| **c != 0 && !listed.contains(c)).copied().collect();
-        let not_present: Vec<u32> = listed.iter().filter(|c| **c != 0 && !exists.contains(c)).copied().collect();
+        let not_listed: Vec<u32> = present
+            .iter()
+            .filter(|c| **c != 0 && !listed.contains(c))
+            .copied()
+            .collect();
+        let not_present: Vec<u32> = listed
+            .iter()
+            .filter(|c| **c != 0 && !exists.contains(c))
+            .copied()
+            .collect();
 
         if !not_listed.is_empty() {
             results.push(self.fail(
                 "31-014",
-                format!(
+                &format!(
                     "{} glyph(s) present in the embedded CID font program are not listed in /CIDSet (CIDs {})",
                     not_listed.len(),
                     join_ids(&not_listed)
@@ -388,7 +468,7 @@ impl<'a> FontContext<'a> {
         if !not_present.is_empty() {
             results.push(self.fail(
                 "31-015",
-                format!(
+                &format!(
                     "{} CID(s) listed in /CIDSet are not present in the embedded font program (CIDs {})",
                     not_present.len(),
                     join_ids(&not_present)
@@ -405,8 +485,12 @@ impl<'a> FontContext<'a> {
     // ------------------------------------------------------------------
     fn check_truetype_cmaps(&self, program: &FontProgram<'_>, results: &mut Vec<CheckResult>) {
         let subtables = program.cmap_subtables();
-        let has_30 = subtables.iter().any(|s| s.platform_id == 3 && s.encoding_id == 0);
-        let has_31 = subtables.iter().any(|s| s.platform_id == 3 && s.encoding_id == 1);
+        let has_30 = subtables
+            .iter()
+            .any(|s| s.platform_id == 3 && s.encoding_id == 0);
+        let has_31 = subtables
+            .iter()
+            .any(|s| s.platform_id == 3 && s.encoding_id == 1);
         let encoding = self.font.get(b"Encoding").ok();
 
         if self.is_symbolic() {
@@ -414,19 +498,19 @@ impl<'a> FontContext<'a> {
             if encoding.is_some() {
                 results.push(self.fail(
                     "31-024",
-                    "symbolic TrueType font has an /Encoding entry in the font dictionary".to_string(),
+                    "symbolic TrueType font has an /Encoding entry in the font dictionary",
                 ));
             }
             // 31-025 / 31-026
             if subtables.is_empty() {
                 results.push(self.fail(
                     "31-025",
-                    "embedded symbolic TrueType program has no cmap subtable".to_string(),
+                    "embedded symbolic TrueType program has no cmap subtable",
                 ));
             } else if subtables.len() > 1 && !has_30 {
                 results.push(self.fail(
-                    "31-026",
-                    format!(
+                "31-026",
+                &format!(
                         "embedded symbolic TrueType program has {} cmap subtables but none is a (3,0) Microsoft Symbol cmap",
                         subtables.len()
                     ),
@@ -440,12 +524,15 @@ impl<'a> FontContext<'a> {
             return;
         }
         // 31-017: at least one non-symbolic cmap ((3,0) does not count)
-        let non_symbolic_cmaps = subtables.iter().filter(|s| !(s.platform_id == 3 && s.encoding_id == 0)).count();
+        let non_symbolic_cmaps = subtables
+            .iter()
+            .filter(|s| !(s.platform_id == 3 && s.encoding_id == 0))
+            .count();
         if non_symbolic_cmaps == 0 {
             results.push(self.fail(
                 "31-017",
-                "non-symbolic TrueType font used for rendering has no non-symbolic cmap subtable in the embedded program".to_string(),
-            ));
+                "non-symbolic TrueType font used for rendering has no non-symbolic cmap subtable in the embedded program",
+                ));
         }
         // 31-023: Differences requires a (3,1) cmap
         let has_differences = encoding
@@ -455,15 +542,20 @@ impl<'a> FontContext<'a> {
         if has_differences && !has_31 {
             results.push(self.fail(
                 "31-023",
-                "non-symbolic TrueType font has a /Differences array but the embedded program has no (3,1) Microsoft Unicode cmap".to_string(),
-            ));
+                "non-symbolic TrueType font has a /Differences array but the embedded program has no (3,1) Microsoft Unicode cmap",
+                ));
         }
     }
 
     // ------------------------------------------------------------------
     // 31-011, 31-016, 31-018, 31-030: per-glyph checks over used codes
     // ------------------------------------------------------------------
-    fn check_glyph_coverage_and_widths(&self, program: &FontProgram<'_>, results: &mut Vec<CheckResult>) {
+    #[allow(clippy::too_many_lines)]
+    fn check_glyph_coverage_and_widths(
+        &self,
+        program: &FontProgram<'_>,
+        results: &mut Vec<CheckResult>,
+    ) {
         let rendered = self.rendered_codes();
         if rendered.is_empty() {
             return;
@@ -472,9 +564,18 @@ impl<'a> FontContext<'a> {
         let simple_encoding = if self.is_type0() {
             None
         } else {
-            Some(SimpleEncoding::load(self.doc, self.font, self.is_symbolic(), self.is_truetype()))
+            Some(SimpleEncoding::load(
+                self.doc,
+                self.font,
+                self.is_symbolic(),
+                self.is_truetype(),
+            ))
         };
-        let cmap = if self.is_type0() { self.load_encoding_cmap() } else { None };
+        let cmap = if self.is_type0() {
+            self.load_encoding_cmap()
+        } else {
+            None
+        };
         let cid_to_gid = self.descendant.map(|d| CidToGid::load(self.doc, d));
         let widths = if self.is_type0() {
             self.descendant.map(|d| Widths::cid(self.doc, d))
@@ -537,7 +638,9 @@ impl<'a> FontContext<'a> {
             // 31-016: widths
             if let Some(widths) = &widths {
                 let dict_width = if self.is_type0() {
-                    cmap.as_ref().and_then(|c| c.to_cid(*code, *num_bytes)).and_then(|cid| widths.get(cid))
+                    cmap.as_ref()
+                        .and_then(|c| c.to_cid(*code, *num_bytes))
+                        .and_then(|cid| widths.get(cid))
                 } else {
                     widths.get(*code)
                 };
@@ -547,7 +650,9 @@ impl<'a> FontContext<'a> {
                 };
                 if let (Some(dw), Some(pw)) = (dict_width, program_width) {
                     if (dw - pw).abs() > 1.0 + 1e-6 {
-                        width_mismatches.push(format!("code {code}: dictionary {dw:.1}, font program {pw:.1}"));
+                        width_mismatches.push(format!(
+                            "code {code}: dictionary {dw:.1}, font program {pw:.1}"
+                        ));
                     }
                 }
             }
@@ -556,7 +661,7 @@ impl<'a> FontContext<'a> {
         if !missing_glyphs.is_empty() {
             results.push(self.fail(
                 "31-011",
-                format!(
+                &format!(
                     "{} rendered glyph(s) are not present in the embedded font program: {}",
                     missing_glyphs.len(),
                     missing_glyphs.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
@@ -566,7 +671,7 @@ impl<'a> FontContext<'a> {
         if !cmap_lookup_failures.is_empty() {
             results.push(self.fail(
                 "31-018",
-                format!(
+                &format!(
                     "{} rendered character code(s) cannot be looked up through the non-symbolic cmap subtables of the embedded TrueType program: {}",
                     cmap_lookup_failures.len(),
                     cmap_lookup_failures.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
@@ -576,7 +681,7 @@ impl<'a> FontContext<'a> {
         if !notdef_codes.is_empty() {
             results.push(self.fail(
                 "31-030",
-                format!(
+                &format!(
                     "{} text-showing character code(s) reference the .notdef glyph: {}",
                     notdef_codes.len(),
                     notdef_codes.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
@@ -586,7 +691,7 @@ impl<'a> FontContext<'a> {
         if !width_mismatches.is_empty() {
             results.push(self.fail(
                 "31-016",
-                format!(
+                &format!(
                     "{} glyph width(s) in the font dictionary differ from the embedded font program by more than 1/1000: {}",
                     width_mismatches.len(),
                     width_mismatches.iter().take(3).cloned().collect::<Vec<_>>().join("; ")
@@ -596,7 +701,10 @@ impl<'a> FontContext<'a> {
             results.push(self.pass("31-016", "glyph widths match the embedded font program"));
         }
         if missing_glyphs.is_empty() && cmap_lookup_failures.is_empty() {
-            results.push(self.pass("31-011", "all rendered glyphs are present in the embedded font program"));
+            results.push(self.pass(
+                "31-011",
+                "all rendered glyphs are present in the embedded font program",
+            ));
         }
     }
 
@@ -640,18 +748,21 @@ impl<'a> FontContext<'a> {
             }
             if zero > 0 {
                 results.push(self.fail(
-                    "31-028",
-                    format!("ToUnicode CMap maps {zero} character code(s) to U+0000 — glyphs have no Unicode representation"),
+                "31-028",
+                &format!("ToUnicode CMap maps {zero} character code(s) to U+0000 — glyphs have no Unicode representation"),
                 ));
             }
             if nonchar > 0 {
                 results.push(self.fail(
                     "31-029",
-                    format!("ToUnicode CMap maps {nonchar} character code(s) to U+FEFF or U+FFFE"),
+                    &format!("ToUnicode CMap maps {nonchar} character code(s) to U+FEFF or U+FFFE"),
                 ));
             }
             if zero == 0 && nonchar == 0 {
-                results.push(self.pass("31-028", "ToUnicode CMap contains no forbidden Unicode values"));
+                results.push(self.pass(
+                    "31-028",
+                    "ToUnicode CMap contains no forbidden Unicode values",
+                ));
             }
 
             // 10-001: every used code must be mapped
@@ -664,7 +775,7 @@ impl<'a> FontContext<'a> {
             if !unmapped.is_empty() && !self.has_implicit_unicode_mapping() {
                 results.push(self.fail(
                     "10-001",
-                    format!(
+                    &format!(
                         "{} used character code(s) have no ToUnicode mapping: {}",
                         unmapped.len(),
                         unmapped.iter().take(8).cloned().collect::<Vec<_>>().join(", ")
@@ -676,7 +787,10 @@ impl<'a> FontContext<'a> {
 
         // 31-027: no ToUnicode — one of the permitted alternatives must apply
         if self.has_implicit_unicode_mapping() {
-            results.push(self.pass("31-027", "Unicode mapping is provided without a ToUnicode CMap (permitted encoding)"));
+            results.push(self.pass(
+                "31-027",
+                "Unicode mapping is provided without a ToUnicode CMap (permitted encoding)",
+            ));
         } else {
             let reason = if self.is_type0() {
                 "composite font has no ToUnicode CMap and its CIDFont does not use an Adobe-GB1/CNS1/Japan1/Korea1 character collection"
@@ -685,11 +799,11 @@ impl<'a> FontContext<'a> {
             } else {
                 "font has no ToUnicode CMap and its encoding is not MacRomanEncoding, MacExpertEncoding or WinAnsiEncoding, and not all used glyph names are Adobe Glyph List names"
             };
-            results.push(self.fail("31-027", reason.to_string()));
+            results.push(self.fail("31-027", reason));
         }
     }
 
-    /// ISO 14289-1 7.21.7 alternatives to a ToUnicode CMap.
+    /// ISO 14289-1 7.21.7 alternatives to a `ToUnicode` `CMap`.
     fn has_implicit_unicode_mapping(&self) -> bool {
         if self.is_type0() {
             return self
@@ -697,8 +811,16 @@ impl<'a> FontContext<'a> {
                 .and_then(|d| d.get_deref(b"CIDSystemInfo", self.doc).ok())
                 .and_then(|o| o.as_dict().ok())
                 .is_some_and(|csi| {
-                    let reg = csi.get_deref(b"Registry", self.doc).ok().and_then(|o| o.as_str().ok()).unwrap_or(b"");
-                    let ord = csi.get_deref(b"Ordering", self.doc).ok().and_then(|o| o.as_str().ok()).unwrap_or(b"");
+                    let reg = csi
+                        .get_deref(b"Registry", self.doc)
+                        .ok()
+                        .and_then(|o| o.as_str().ok())
+                        .unwrap_or(b"");
+                    let ord = csi
+                        .get_deref(b"Ordering", self.doc)
+                        .ok()
+                        .and_then(|o| o.as_str().ok())
+                        .unwrap_or(b"");
                     reg == b"Adobe" && matches!(ord, b"Japan1" | b"GB1" | b"CNS1" | b"Korea1")
                 });
         }
@@ -740,9 +862,10 @@ impl<'a> FontContext<'a> {
                 return false;
             }
             return codes.iter().all(|(code, _)| {
-                let code8 = u8::try_from(*code).unwrap_or(0);
-                enc.glyph_name(program.as_ref(), code8)
-                    .is_some_and(|n| agl::glyph_name_to_unicode(&n).is_some() || is_symbol_font_name(&n))
+                let byte = u8::try_from(*code).unwrap_or(0);
+                enc.glyph_name(program.as_ref(), byte).is_some_and(|n| {
+                    agl::glyph_name_to_unicode(&n).is_some() || is_symbol_font_name(&n)
+                })
             });
         }
         false
@@ -752,7 +875,10 @@ impl<'a> FontContext<'a> {
 /// Names of the Symbol font glyph set (ISO 32000-1 Annex D.5) are accepted as
 /// Unicode-mappable by 7.21.7.
 fn is_symbol_font_name(name: &[u8]) -> bool {
-    encodings::SYMBOL.iter().flatten().any(|n| n.as_bytes() == name)
+    encodings::SYMBOL
+        .iter()
+        .flatten()
+        .any(|n| n.as_bytes() == name)
 }
 
 enum GlyphRef {
@@ -801,10 +927,18 @@ impl SimpleEncoding {
         let Ok(dict) = encoding.as_dict() else {
             return enc;
         };
-        if let Some(name) = dict.get_deref(b"BaseEncoding", doc).ok().and_then(|o| o.as_name().ok()) {
+        if let Some(name) = dict
+            .get_deref(b"BaseEncoding", doc)
+            .ok()
+            .and_then(|o| o.as_name().ok())
+        {
             enc.base = encodings::predefined(name);
         }
-        if let Some(diffs) = dict.get_deref(b"Differences", doc).ok().and_then(|o| o.as_array().ok()) {
+        if let Some(diffs) = dict
+            .get_deref(b"Differences", doc)
+            .ok()
+            .and_then(|o| o.as_array().ok())
+        {
             let mut code: i64 = 0;
             for item in diffs {
                 match item {
@@ -916,7 +1050,10 @@ impl SimpleEncoding {
                     return Resolved::Glyph(GlyphRef::Gid(usize::from(g)));
                 }
             }
-            if let Some(mac_code) = encodings::MAC_ROMAN.iter().position(|n| n.is_some_and(|n| n.as_bytes() == name.as_slice())) {
+            if let Some(mac_code) = encodings::MAC_ROMAN
+                .iter()
+                .position(|n| n.is_some_and(|n| n.as_bytes() == name.as_slice()))
+            {
                 if let Some(g) = program.cmap_lookup(1, 0, mac_code as u32) {
                     return Resolved::Glyph(GlyphRef::Gid(usize::from(g)));
                 }
@@ -938,7 +1075,10 @@ impl SimpleEncoding {
             }
         }
         // As a last resort, (3,0) with the raw code (common in the wild)
-        if let Some(g) = program.cmap_lookup(3, 0, 0xF000 + c).or_else(|| program.cmap_lookup(3, 0, c)) {
+        if let Some(g) = program
+            .cmap_lookup(3, 0, 0xF000 + c)
+            .or_else(|| program.cmap_lookup(3, 0, c))
+        {
             return Resolved::Glyph(GlyphRef::Gid(usize::from(g)));
         }
         Resolved::CmapMiss
@@ -957,7 +1097,7 @@ fn glyph_index_name(name: &[u8]) -> Option<usize> {
     None
 }
 
-/// `/CIDToGIDMap` of a CIDFontType2.
+/// `/CIDToGIDMap` of a `CIDFontType2`.
 enum CidToGid {
     Identity,
     Map(Vec<u16>),
@@ -976,7 +1116,11 @@ impl CidToGid {
         let Ok(data) = stream.decompressed_content() else {
             return Self::Identity;
         };
-        Self::Map(data.chunks(2).map(|c| u16::from_be_bytes([c[0], *c.get(1).unwrap_or(&0)])).collect())
+        Self::Map(
+            data.chunks(2)
+                .map(|c| u16::from_be_bytes([c[0], *c.get(1).unwrap_or(&0)]))
+                .collect(),
+        )
     }
 }
 
@@ -989,8 +1133,16 @@ struct Widths {
 impl Widths {
     fn simple(doc: &Document, font: &Dictionary, descriptor: Option<&Dictionary>) -> Self {
         let mut map = HashMap::new();
-        let first = font.get_deref(b"FirstChar", doc).ok().and_then(|o| o.as_i64().ok()).unwrap_or(0);
-        if let Some(widths) = font.get_deref(b"Widths", doc).ok().and_then(|o| o.as_array().ok()) {
+        let first = font
+            .get_deref(b"FirstChar", doc)
+            .ok()
+            .and_then(|o| o.as_i64().ok())
+            .unwrap_or(0);
+        if let Some(widths) = font
+            .get_deref(b"Widths", doc)
+            .ok()
+            .and_then(|o| o.as_array().ok())
+        {
             for (i, w) in widths.iter().enumerate() {
                 let w = match resolve(doc, w) {
                     Some(Object::Integer(v)) => f64::from(i32::try_from(*v).unwrap_or(0)),
@@ -1010,8 +1162,16 @@ impl Widths {
 
     fn cid(doc: &Document, cid_font: &Dictionary) -> Self {
         let mut map = HashMap::new();
-        let default = cid_font.get_deref(b"DW", doc).ok().and_then(num).or(Some(1000.0));
-        if let Some(w) = cid_font.get_deref(b"W", doc).ok().and_then(|o| o.as_array().ok()) {
+        let default = cid_font
+            .get_deref(b"DW", doc)
+            .ok()
+            .and_then(num)
+            .or(Some(1000.0));
+        if let Some(w) = cid_font
+            .get_deref(b"W", doc)
+            .ok()
+            .and_then(|o| o.as_array().ok())
+        {
             let items: Vec<&Object> = w.iter().filter_map(|o| resolve(doc, o)).collect();
             let mut i = 0;
             while i < items.len() {
@@ -1029,7 +1189,9 @@ impl Widths {
                         i += 2;
                     }
                     Some(last) => {
-                        let (Some(last), Some(w)) = (num(last), items.get(i + 2).and_then(|o| num(o))) else {
+                        let (Some(last), Some(w)) =
+                            (num(last), items.get(i + 2).and_then(|o| num(o)))
+                        else {
                             i += 3;
                             continue;
                         };

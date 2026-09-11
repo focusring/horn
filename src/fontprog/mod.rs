@@ -27,6 +27,7 @@ pub enum FontFileKind {
 }
 
 /// A parsed embedded font program.
+#[allow(clippy::large_enum_variant)]
 pub enum FontProgram<'a> {
     /// TrueType or OpenType (`ttf-parser`).
     TrueType(ttf_parser::Face<'a>),
@@ -51,14 +52,20 @@ impl<'a> FontProgram<'a> {
         match kind {
             FontFileKind::TrueType => ttf_parser::Face::parse(data, 0).ok().map(Self::TrueType),
             FontFileKind::FontFile3 => {
-                if data.starts_with(b"OTTO") || data.starts_with(&[0, 1, 0, 0]) || data.starts_with(b"true") {
+                if data.starts_with(b"OTTO")
+                    || data.starts_with(&[0, 1, 0, 0])
+                    || data.starts_with(b"true")
+                {
                     ttf_parser::Face::parse(data, 0).ok().map(Self::TrueType)
                 } else {
                     cff::CffFont::parse(data).map(Self::Cff)
                 }
             }
             FontFileKind::Type1 => {
-                if data.starts_with(b"%!") || data.first() == Some(&0x80) || data.windows(5).take(1024).any(|w| w == b"eexec") {
+                if data.starts_with(b"%!")
+                    || data.first() == Some(&0x80)
+                    || data.windows(5).take(1024).any(|w| w == b"eexec")
+                {
                     type1::Type1Font::parse(data).map(Self::Type1)
                 } else if data.first() == Some(&1) {
                     // Some producers put bare CFF in /FontFile
@@ -96,7 +103,11 @@ impl<'a> FontProgram<'a> {
     pub fn glyph_names(&self) -> Option<Vec<String>> {
         match self {
             Self::TrueType(face) => {
-                if !face.tables().post.is_some_and(|p| p.names().next().is_some()) {
+                if face
+                    .tables()
+                    .post
+                    .is_none_or(|p| p.names().next().is_none())
+                {
                     return None;
                 }
                 Some(
@@ -129,7 +140,9 @@ impl<'a> FontProgram<'a> {
     pub fn gid_is_present(&self, gid: usize) -> bool {
         match self {
             Self::TrueType(face) => {
-                let Ok(g) = u16::try_from(gid) else { return false };
+                let Ok(g) = u16::try_from(gid) else {
+                    return false;
+                };
                 if g >= face.number_of_glyphs() {
                     return false;
                 }
@@ -253,7 +266,7 @@ impl<'a> FontProgram<'a> {
     }
 }
 
-/// PlatformId helper: `ttf_parser::PlatformId` has no direct numeric accessor.
+/// `PlatformId` helper: `ttf_parser::PlatformId` has no direct numeric accessor.
 trait PlatformIdExt {
     fn to_u16(self) -> u16;
 }

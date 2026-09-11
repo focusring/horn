@@ -21,6 +21,10 @@ impl Check for ContentStreamChecks {
         1
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["01-003", "01-004", "01-005"]
+    }
+
     fn description(&self) -> &'static str {
         "Content stream: untagged content, artifact nesting"
     }

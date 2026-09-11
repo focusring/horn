@@ -21,6 +21,10 @@ impl Check for AnnotationChecks {
         28
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["28-008", "28-009", "28-x01"]
+    }
+
     fn description(&self) -> &'static str {
         "Annotations: tab order, link destinations"
     }
@@ -130,11 +134,8 @@ fn check_annotations_on_page(
             .and_then(|o| o.as_name().ok())
             .map(<[u8]>::to_vec);
 
-        match subtype.as_deref() {
-            Some(b"Link") => {
-                check_link_annotation(doc, annot, &annot_label, page_num, results);
-            }
-            _ => {}
+        if let Some(b"Link") = subtype.as_deref() {
+            check_link_annotation(doc, annot, &annot_label, page_num, results);
         }
     }
 }

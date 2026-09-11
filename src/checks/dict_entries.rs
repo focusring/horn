@@ -8,7 +8,8 @@ use anyhow::Result;
 /// Validates structural requirements from ISO 14289-1 section 7.1:
 /// - 07-001: /`ParentTree` must exist in `StructTreeRoot`
 /// - 07-002: MarkInfo/Suspects must not be true
-/// - 07-003: Structure elements with non-standard types must have role map entries
+/// - 02-001: Structure elements with non-standard types must have role map entries
+/// - 30-001: Reference `XObjects` are forbidden
 pub struct DictEntryChecks;
 
 impl Check for DictEntryChecks {
@@ -18,6 +19,10 @@ impl Check for DictEntryChecks {
 
     fn checkpoint(&self) -> u8 {
         7
+    }
+
+    fn rules(&self) -> &'static [&'static str] {
+        &["01-007", "01-x03", "02-001", "30-001"]
     }
 
     fn description(&self) -> &'static str {
@@ -381,79 +386,41 @@ fn is_standard_structure_type(name: &[u8]) -> bool {
     )
 }
 
-/// 25-001: Reference `XObjects` (/Ref key on Form `XObjects`) are not permitted in PDF/UA.
+/// 30-001: Reference `XObjects` (/Ref key on Form `XObjects`) are not permitted in PDF/UA.
 ///
 /// A Form `XObject` with a /Ref entry is a reference `XObject` that points to external
 /// content. These are forbidden because assistive technologies cannot access the
-/// referenced content.
+/// referenced content. Every Form `XObject` in the file is inspected, including
+/// those nested in other forms or annotation appearance streams.
 fn check_reference_xobjects(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
     let lopdf_doc = doc.lopdf();
-    let pages = lopdf_doc.get_pages();
+    let mut ids: Vec<lopdf::ObjectId> = lopdf_doc
+        .objects
+        .iter()
+        .filter(|(_, obj)| {
+            obj.as_stream().is_ok_and(|s| {
+                s.dict.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) == Some(b"Form")
+                    && s.dict.get(b"Ref").is_ok()
+            })
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    ids.sort_unstable();
 
-    for (page_num, page_id) in &pages {
-        let Ok(page_obj) = lopdf_doc.get_object(*page_id) else {
-            continue;
-        };
-        let Ok(page_dict) = page_obj.as_dict() else {
-            continue;
-        };
-
-        // Get XObject resources
-        let xobjects = page_dict
-            .get_deref(b"Resources", lopdf_doc)
-            .ok()
-            .and_then(|o| o.as_dict().ok())
-            .and_then(|res| res.get_deref(b"XObject", lopdf_doc).ok())
-            .and_then(|o| o.as_dict().ok());
-
-        let Some(xobj_dict) = xobjects else {
-            continue;
-        };
-
-        for (name, obj) in xobj_dict {
-            let resolved = if let Ok(ref_id) = obj.as_reference() {
-                lopdf_doc.get_object(ref_id).ok()
-            } else {
-                Some(obj)
-            };
-            let Some(xobj) = resolved else { continue };
-
-            // Only check Form XObjects (not Image XObjects)
-            let is_form = xobj
-                .as_stream()
-                .ok()
-                .and_then(|s| s.dict.get(b"Subtype").ok())
-                .and_then(|o| o.as_name().ok())
-                .is_some_and(|n| n == b"Form");
-
-            if !is_form {
-                continue;
-            }
-
-            // Check for /Ref key — reference XObjects are forbidden
-            let has_ref = xobj
-                .as_stream()
-                .ok()
-                .is_some_and(|s| s.dict.get(b"Ref").is_ok());
-
-            if has_ref {
-                let name_str = String::from_utf8_lossy(name);
-                results.push(CheckResult {
-                    rule_id: "30-001".to_string(),
-                    checkpoint: 30,
-                    description: format!(
-                        "Page {page_num}: Form XObject /{name_str} is a reference XObject (/Ref)"
-                    ),
-                    severity: Severity::Error,
-                    outcome: CheckOutcome::Fail {
-                        message: format!(
-                            "Page {page_num}: Form XObject /{name_str} has /Ref entry — reference XObjects are not permitted in PDF/UA"
-                        ),
-                        location: None,
-                    },
-                });
-            }
-        }
+    for id in ids {
+        results.push(CheckResult {
+            rule_id: "30-001".to_string(),
+            checkpoint: 30,
+            description: format!("Form XObject {}.{} is a reference XObject (/Ref)", id.0, id.1),
+            severity: Severity::Error,
+            outcome: CheckOutcome::Fail {
+                message: format!(
+                    "Form XObject {}.{} has a /Ref entry — reference XObjects are not permitted in PDF/UA",
+                    id.0, id.1
+                ),
+                location: None,
+            },
+        });
     }
 }
 

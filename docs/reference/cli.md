@@ -24,10 +24,27 @@ horn validate <FILES...> [OPTIONS]
 | `-o, --output <PATH>` | stdout | Write output to a file |
 | `-r, --recurse` | off | Recursively scan directories for PDFs |
 | `--fail-on <SEVERITY>` | `error` | Minimum severity to trigger a non-zero exit: `error`, `warning`, `info` |
+| `--review` | off | Text output: also list the Matterhorn conditions that need manual review for this document |
+
+Findings use the official Matterhorn Protocol 1.1 failure-condition index as
+their rule id (for example `28-010`); Horn-specific extension rules use ids of
+the form `NN-xNN`. See the [checks reference](./checks.md).
+
+### `horn coverage`
+
+Print the Matterhorn Protocol coverage matrix: every failure condition with its
+checkpoint, whether it is machine-checkable or requires human judgment, and how
+Horn covers it.
+
+```bash
+horn coverage          # table
+horn coverage --json   # machine-readable
+```
 
 ### `horn list-checks`
 
-Print all registered checks with their ID, checkpoint number, and description.
+Print all registered check modules with their ID, checkpoint number,
+description and the number of rules they emit.
 
 ```bash
 horn list-checks

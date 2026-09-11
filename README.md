@@ -10,14 +10,15 @@
 
 Open-source PDF/UA accessibility checker based on the Matterhorn Protocol.
 
-Horn validates PDF files against PDF/UA-1 (ISO 14289-1), targeting the machine-checkable failure conditions defined in the [Matterhorn Protocol 1.1](https://pdfa.org/resource/the-matterhorn-protocol/). It is designed as a cross-platform, CI/CD-ready alternative to [PAC 2024](https://pac.pdf-accessibility.org/).
+Horn validates PDF files against PDF/UA-1 (ISO 14289-1) and covers **all 136 failure conditions of the [Matterhorn Protocol 1.1](https://pdfa.org/resource/the-matterhorn-protocol/)**: the 87 machine-checkable conditions are implemented as automated checks and the 48 human-judgment conditions are reported as manual-review items. Every finding carries the official Matterhorn index (e.g. `28-010`). Horn scores 100% on the [veraPDF PDF/UA-1 test corpus](https://github.com/veraPDF/veraPDF-corpus) (297 files) and passes the PDF Association's PDF/UA-1 Reference Suite. It is designed as a cross-platform, CI/CD-ready alternative to [PAC 2024](https://pac.pdf-accessibility.org/).
 
 ## Features
 
 - **Fast**: ~660 PDFs/second with parallel processing (release mode)
 - **CI/CD native**: SARIF (GitHub Code Scanning), JUnit XML, JSON output formats
 - **Cross-platform**: Linux, macOS, Windows — no JVM or GUI required
-- **Comprehensive**: 9 check modules covering metadata, structure, fonts, headings, tables, images, annotations, and lists
+- **Complete Matterhorn coverage**: 87/87 machine-checkable conditions automated, 48/48 human-judgment conditions surfaced for manual review (`horn coverage` prints the matrix)
+- **Deep font analysis**: parses embedded TrueType, CFF and Type 1 font programs to verify glyph coverage, CharSet/CIDSet, widths, cmap subtables and Unicode mapping
 - **Extensible**: `Check` trait for adding custom checks
 
 ## Installation
@@ -56,6 +57,12 @@ horn validate ./output/ --recurse --format junit --fail-on error -o results.xml
 
 # Only fail on warnings or worse (ignore info-level findings)
 horn validate doc.pdf --fail-on warning
+
+# Include manual-review items (human-judgment Matterhorn conditions) in text output
+horn validate doc.pdf --review
+
+# Show the Matterhorn Protocol coverage matrix
+horn coverage
 
 # List available checks
 horn list-checks

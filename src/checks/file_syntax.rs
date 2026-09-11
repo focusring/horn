@@ -22,6 +22,10 @@ impl Check for FileSyntaxChecks {
         0
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["00-x01", "00-x02"]
+    }
+
     fn description(&self) -> &'static str {
         "File syntax: PDF header and end-of-file marker"
     }

@@ -19,6 +19,16 @@ impl Check for BaselineCheck {
         0 // Meta-check spanning multiple checkpoints
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &[
+            "01-005", "01-x01", "02-001", "04-001", "05-002", "06-002", "06-003", "07-001",
+            "09-001", "09-004", "09-005", "11-001", "13-004", "13-x01", "13-x02", "13-x03",
+            "14-003", "15-003", "15-x01", "15-x02", "27-001", "28-002", "28-004", "28-005",
+            "28-010", "28-x01", "28-x02", "28-x03", "28-x04", "28-x05", "29-001", "31-009",
+            "31-027",
+        ]
+    }
+
     fn description(&self) -> &'static str {
         "pdf_oxide built-in PDF/UA-1 validation"
     }
@@ -98,11 +108,12 @@ fn map_error_code(code: UaErrorCode) -> (String, u8, Severity) {
         // Checkpoint 01/09: Structure and tagging
         UaErrorCode::NotTaggedPdf => ("01-x01".into(), 1, Severity::Error),
         UaErrorCode::ContentNotTagged => ("01-005".into(), 1, Severity::Error),
-        UaErrorCode::InvalidStructureType => ("02-001".into(), 2, Severity::Error),
         UaErrorCode::InvalidStructureNesting => ("09-004".into(), 9, Severity::Error),
 
         // Checkpoint 02: Role Mapping
-        UaErrorCode::MissingRoleMapping => ("02-001".into(), 2, Severity::Error),
+        UaErrorCode::InvalidStructureType | UaErrorCode::MissingRoleMapping => {
+            ("02-001".into(), 2, Severity::Error)
+        }
 
         // Checkpoint 13: Images/Figures
         UaErrorCode::FigureMissingAlt => ("13-004".into(), 13, Severity::Error),

@@ -29,9 +29,9 @@ git submodule update --remote tests/fixtures/verapdf-corpus
 
 ### Corpus Structure
 
-The corpus contains **434 atomic PDF test files** across two PDF/UA standards:
+The corpus (upstream `staging` branch, 2026-08-28) contains **435 atomic PDF test files** across two PDF/UA standards:
 
-#### PDF/UA-1 (ISO 14289-1) — 296 files (141 pass, 155 fail)
+#### PDF/UA-1 (ISO 14289-1) — 297 files (141 pass, 156 fail)
 
 | Section | Description | Files |
 |---------|-------------|-------|
@@ -40,7 +40,7 @@ The corpus contains **434 atomic PDF test files** across two PDF/UA standards:
 | 7.2 | Text (natural language, ActualText, Unicode) | 110 |
 | 7.3 | Graphics | 5 |
 | 7.4 | Headings (numbered and unnumbered) | 14 |
-| 7.5 | Tables | 8 |
+| 7.5 | Tables | 9 |
 | 7.7 | Mathematical expressions | 5 |
 | 7.9 | Notes and references | 5 |
 | 7.10 | Optional content | 5 |
@@ -85,20 +85,27 @@ All test files follow this pattern:
 
 ### Mapping to Matterhorn Protocol
 
-The veraPDF sections map directly to Matterhorn Protocol checkpoints:
+The veraPDF test sections are ISO 14289-1 clauses; the Matterhorn Protocol
+references the same clauses in its *Section* column (`UA1:7.18.1-2`), so each
+test file maps to one or more Matterhorn failure conditions:
 
-| Matterhorn Checkpoint | veraPDF Section (UA-1) | Area |
-|-----------------------|------------------------|------|
-| 01 | 7.1 | General / Document |
-| 02 | 7.2 | Text |
-| 06 | 7.1 (tagged PDF) | Tagged PDF |
-| 07 | 7.4 | Headings |
-| 09 | 7.5 | Tables |
-| 11 | 7.3 | Graphics |
-| 13 | 7.18 | Annotations |
-| 14 | 7.21 | Fonts |
-| 26 | 7.10 | Optional content |
-| 28 | 5 | Version identification |
+| veraPDF Section (UA-1) | ISO 14289-1 clause | Matterhorn checkpoints |
+|------------------------|--------------------|------------------------|
+| 5 | Conformance / identification | 06 |
+| 7.1 | General (tagging, metadata, role map) | 01, 02, 06, 07 |
+| 7.2 | Text (language, structure, tables) | 09, 11, 14, 15 |
+| 7.3 | Graphics | 13 |
+| 7.4 | Headings | 14 |
+| 7.5 | Tables | 15 |
+| 7.7 | Mathematical expressions | 17 |
+| 7.9 | Notes and references | 19 |
+| 7.10 | Optional content | 20 |
+| 7.11 | Embedded files | 21 |
+| 7.15 | XFA | 25 |
+| 7.16 | Security | 26 |
+| 7.18 | Annotations | 28 |
+| 7.20 | XObjects | 30 |
+| 7.21 | Fonts | 10, 31 |
 
 ### Using the Test Data in Horn
 
@@ -196,6 +203,13 @@ steps:
 - **Deterministic**: Pass/fail expectation encoded in the filename
 - **Comprehensive**: Covers all machine-checkable Matterhorn Protocol failure conditions
 
+### Current results
+
+Horn validates **297/297** UA-1 corpus files as expected (141/141 pass files
+compliant, 156/156 fail files detected), all 10 reference-suite files as
+compliant, and all 93 generated / pdfcheck fixtures as expected. The
+`coverage_baseline` test in `tests/corpus.rs` enforces these numbers.
+
 ## PDF/UA Reference Suite (Local Fixtures)
 
 The [PDF/UA-1 Reference Suite 1.1](https://pdfa.org/resource/pdfua-reference-suite/)
@@ -252,8 +266,8 @@ submodule at `tests/fixtures/pdfcheck/`.
 **License:** MIT
 
 This is a browser-based PDF accessibility screening tool. Its `examples/` directory
-contains 12 PDFs covering a spectrum from completely inaccessible to fully compliant,
-with filenames that encode the expected outcome.
+contains 12 PDFs (plus a non-PDF file) covering a spectrum from completely
+inaccessible to fully compliant, with filenames that encode the expected outcome.
 
 ### Files
 

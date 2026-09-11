@@ -18,10 +18,15 @@ impl Check for TableChecks {
         15
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["09-004", "15-003", "15-x01", "15-x02", "15-x03", "15-x04"]
+    }
+
     fn description(&self) -> &'static str {
         "Tables: TH/TD structure, header identification"
     }
 
+    #[allow(clippy::too_many_lines)]
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>> {
         let mut results = Vec::new();
         let lopdf_doc = doc.lopdf();
@@ -189,7 +194,7 @@ struct RowInfo {
     has_td: bool,
     cell_count: usize,
     effective_cols: usize, // cell_count adjusted for ColSpan values
-    /// (RowSpan, ColSpan) of every cell in document order, defaulting to (1, 1).
+    /// (`RowSpan`, `ColSpan`) of every cell in document order, defaulting to (1, 1).
     cells: Vec<(usize, usize)>,
 }
 
@@ -288,8 +293,10 @@ fn analyze_row(
                     row.has_th = true;
                     row.cell_count += 1;
                     row.effective_cols += get_colspan(doc, child_dict);
-                    row.cells
-                        .push((get_span(doc, child_dict, b"RowSpan"), get_colspan(doc, child_dict)));
+                    row.cells.push((
+                        get_span(doc, child_dict, b"RowSpan"),
+                        get_colspan(doc, child_dict),
+                    ));
                     // Check for /Scope attribute on TH cells and validate value
                     if let Ok(attrs) = child_dict.get(b"A") {
                         let (has, valid) = check_scope_attr(doc, attrs);
@@ -309,8 +316,10 @@ fn analyze_row(
                     row.has_td = true;
                     row.cell_count += 1;
                     row.effective_cols += get_colspan(doc, child_dict);
-                    row.cells
-                        .push((get_span(doc, child_dict, b"RowSpan"), get_colspan(doc, child_dict)));
+                    row.cells.push((
+                        get_span(doc, child_dict, b"RowSpan"),
+                        get_colspan(doc, child_dict),
+                    ));
 
                     // Check for /Headers attribute (PDF 2.0 / PDF/UA)
                     if let Ok(attrs) = child_dict.get(b"A") {
@@ -408,7 +417,12 @@ fn find_irregular_row(rows: &[RowInfo]) -> Option<(usize, usize, usize)> {
         }
         // Columns occupied by spans from above but to the left of the last cell
         // are already inside `width`; count every occupied column exactly once.
-        let occupied = pending.iter().take(width).filter(|p| **p > 0).count().max(width);
+        let occupied = pending
+            .iter()
+            .take(width)
+            .filter(|p| **p > 0)
+            .count()
+            .max(width);
 
         for slot in &mut pending {
             *slot = slot.saturating_sub(1);

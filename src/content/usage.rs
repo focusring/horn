@@ -1,4 +1,4 @@
-//! Walks every content stream of a document (pages, Form XObjects and
+//! Walks every content stream of a document (pages, Form `XObjects` and
 //! annotation appearance streams) and records, per font dictionary, the
 //! character codes shown with it and whether any of them are rendered
 //! (text rendering mode other than 3, "invisible").
@@ -19,7 +19,7 @@ pub struct FontUsage {
     pub codes: BTreeSet<(u32, usize)>,
     /// Codes shown in a rendering mode other than 3 (i.e. actually rendered).
     pub rendered_codes: BTreeSet<(u32, usize)>,
-    /// True when the font's `/Encoding` is a predefined CMap we cannot split
+    /// True when the font's `/Encoding` is a predefined `CMap` we cannot split
     /// byte strings with; `codes` is then unreliable and callers should skip
     /// code-level checks.
     pub codes_unreliable: bool,
@@ -31,16 +31,30 @@ pub struct FontUsage {
 }
 
 /// Font usage keyed by the font dictionary's object id. Fonts referenced only
-/// as direct dictionaries (no indirect object) are keyed by a synthetic id
-/// derived from the resource name and are rare in practice.
+/// as direct dictionaries (no indirect object) cannot be tracked and are
+/// rare in practice.
 pub type FontUsageMap = HashMap<ObjectId, FontUsage>;
 
-/// Collect font usage over all pages, their Form XObjects and annotation
+/// Everything collected from the content streams of a document.
+#[derive(Debug, Default, Clone)]
+pub struct ContentUsage {
+    /// Per-font character code usage.
+    pub fonts: FontUsageMap,
+    /// How many times each Form `XObject` is painted (`Do`), over all pages,
+    /// nested forms and annotation appearances.
+    pub form_xobject_uses: HashMap<ObjectId, u32>,
+    /// Number of `/Artifact` marked-content sequences seen.
+    pub artifact_sequences: u32,
+}
+
+/// Collect content usage over all pages, their Form `XObjects` and annotation
 /// appearance streams.
-pub fn collect_font_usage(doc: &Document) -> FontUsageMap {
+pub fn collect_content_usage(doc: &Document) -> ContentUsage {
     let mut walker = Walker {
         doc,
         usage: HashMap::new(),
+        xobject_uses: HashMap::new(),
+        artifact_sequences: 0,
         cmaps: HashMap::new(),
         visited_forms: HashSet::new(),
     };
@@ -64,7 +78,12 @@ pub fn collect_font_usage(doc: &Document) -> FontUsageMap {
                 let Some(annot) = resolve(doc, annot).and_then(|o| o.as_dict().ok()) else {
                     continue;
                 };
-                let Some(ap) = annot.get(b"AP").ok().and_then(|o| resolve(doc, o)).and_then(|o| o.as_dict().ok()) else {
+                let Some(ap) = annot
+                    .get(b"AP")
+                    .ok()
+                    .and_then(|o| resolve(doc, o))
+                    .and_then(|o| o.as_dict().ok())
+                else {
                     continue;
                 };
                 for (_, entry) in ap {
@@ -74,13 +93,19 @@ pub fn collect_font_usage(doc: &Document) -> FontUsageMap {
         }
     }
 
-    walker.usage
+    ContentUsage {
+        fonts: walker.usage,
+        form_xobject_uses: walker.xobject_uses,
+        artifact_sequences: walker.artifact_sequences,
+    }
 }
 
 struct Walker<'a> {
     doc: &'a Document,
     usage: FontUsageMap,
-    /// Parsed encoding CMaps per Type 0 font (None = cannot split reliably).
+    xobject_uses: HashMap<ObjectId, u32>,
+    artifact_sequences: u32,
+    /// Parsed encoding `CMaps` per Type 0 font (None = cannot split reliably).
     cmaps: HashMap<ObjectId, Option<EncodingCMap>>,
     visited_forms: HashSet<ObjectId>,
 }
@@ -93,8 +118,15 @@ struct TextState {
 
 impl Walker<'_> {
     /// An appearance entry is a stream or a sub-dictionary of state → stream.
-    fn walk_appearance(&mut self, entry: &Object, parent_resources: Option<&Dictionary>, depth: usize) {
-        let Some(resolved) = resolve(self.doc, entry) else { return };
+    fn walk_appearance(
+        &mut self,
+        entry: &Object,
+        parent_resources: Option<&Dictionary>,
+        depth: usize,
+    ) {
+        let Some(resolved) = resolve(self.doc, entry) else {
+            return;
+        };
         if let Ok(stream) = resolved.as_stream() {
             let id = entry.as_reference().ok();
             self.walk_form(stream, id, parent_resources, depth);
@@ -123,7 +155,8 @@ impl Walker<'_> {
                 return;
             }
         }
-        let resources = resolve_dict(self.doc, stream.dict.get(b"Resources").ok()).or(parent_resources);
+        let resources =
+            resolve_dict(self.doc, stream.dict.get(b"Resources").ok()).or(parent_resources);
         let Ok(data) = stream.decompressed_content() else {
             return;
         };
@@ -151,6 +184,11 @@ impl Walker<'_> {
 
         for op in &content.operations {
             match op.operator.as_str() {
+                "BMC" | "BDC" => {
+                    if op.operands.first().and_then(|o| o.as_name().ok()) == Some(b"Artifact") {
+                        self.artifact_sequences += 1;
+                    }
+                }
                 "q" => stack.push(state.clone()),
                 "Q" => {
                     if let Some(s) = stack.pop() {
@@ -166,7 +204,11 @@ impl Walker<'_> {
                         .and_then(|o| o.as_reference().ok());
                 }
                 "Tr" => {
-                    state.render_mode = op.operands.first().and_then(|o| o.as_i64().ok()).unwrap_or(0);
+                    state.render_mode = op
+                        .operands
+                        .first()
+                        .and_then(|o| o.as_i64().ok())
+                        .unwrap_or(0);
                 }
                 "Tj" | "'" | "\"" => {
                     if let Some(Object::String(bytes, _)) = op.operands.last() {
@@ -196,7 +238,9 @@ impl Walker<'_> {
                         .and_then(|name| xobjects.and_then(|x| x.get(name).ok()));
                     if let Some(obj) = target {
                         let id = obj.as_reference().ok();
-                        if let Some(stream) = resolve(self.doc, obj).and_then(|o| o.as_stream().ok()) {
+                        if let Some(stream) =
+                            resolve(self.doc, obj).and_then(|o| o.as_stream().ok())
+                        {
                             let is_form = stream
                                 .dict
                                 .get(b"Subtype")
@@ -204,6 +248,9 @@ impl Walker<'_> {
                                 .and_then(|o| o.as_name().ok())
                                 == Some(b"Form");
                             if is_form {
+                                if let Some(id) = id {
+                                    *self.xobject_uses.entry(id).or_insert(0) += 1;
+                                }
                                 self.walk_form(stream, id, resources, depth);
                             }
                         }
@@ -240,7 +287,11 @@ impl Walker<'_> {
         let Ok(font) = self.doc.get_dictionary(font_id) else {
             return None;
         };
-        let subtype = font.get(b"Subtype").ok().and_then(|o| o.as_name().ok()).unwrap_or(b"");
+        let subtype = font
+            .get(b"Subtype")
+            .ok()
+            .and_then(|o| o.as_name().ok())
+            .unwrap_or(b"");
         if subtype != b"Type0" {
             return Some(bytes.iter().map(|b| (u32::from(*b), 1)).collect());
         }

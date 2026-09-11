@@ -19,6 +19,10 @@ impl Check for EmbeddedFileChecks {
         21
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["21-001"]
+    }
+
     fn description(&self) -> &'static str {
         "Embedded files: file specification completeness"
     }

@@ -22,6 +22,10 @@ impl Check for MathChecks {
         17
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["17-002"]
+    }
+
     fn description(&self) -> &'static str {
         "Math: Formula elements must have alternative text"
     }

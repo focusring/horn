@@ -17,6 +17,10 @@ impl Check for ListChecks {
         16
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["09-005"]
+    }
+
     fn description(&self) -> &'static str {
         "Lists: L/LI/Lbl/LBody structure"
     }

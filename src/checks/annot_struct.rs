@@ -33,6 +33,13 @@ impl Check for AnnotStructChecks {
         28
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &[
+            "28-002", "28-004", "28-005", "28-006", "28-007", "28-010", "28-011", "28-012",
+            "28-014", "28-015", "28-016", "28-017", "28-018",
+        ]
+    }
+
     fn description(&self) -> &'static str {
         "Annotations: structure tree association for all annotations"
     }
@@ -135,6 +142,14 @@ impl Check for AnnotStructChecks {
                             "/PrinterMark",
                         ));
                     }
+                    // 28-018: the appearance stream must be marked as an artifact
+                    if let Some(unmarked) = printer_mark_unmarked_content(lopdf_doc, annot_dict) {
+                        results.push(annot_fail(
+                            "28-018", *page_num,
+                            &format!("PrinterMark annotation (obj {}.{}) appearance stream has {unmarked} content operation(s) outside /Artifact marked content", annot_id.0, annot_id.1),
+                            "/PrinterMark",
+                        ));
+                    }
                     continue;
                 }
 
@@ -154,6 +169,7 @@ impl Check for AnnotStructChecks {
                 }
 
                 total_annots += 1;
+                let results_before = results.len();
 
                 // 28-002: Check if this annotation is referenced in the structure tree
                 if let Some(info) = objr_map.get(&annot_id) {
@@ -191,6 +207,22 @@ impl Check for AnnotStructChecks {
                         *page_num,
                         &format!(
                             "/{type_name} annotation (obj {}.{}) has no OBJR in the structure tree — must be nested in a /{expected} structure element",
+                            annot_id.0, annot_id.1
+                        ),
+                        &format!("/{type_name}"),
+                    ));
+                }
+
+                // 28-006: an annotation whose subtype is not defined in ISO 32000 must
+                // still satisfy 7.18.1 (28-002 / 28-004). Report it under its own index
+                // so the failure is attributable to the non-standard subtype.
+                if !is_iso32000_annotation_subtype(subtype) && results.len() > results_before {
+                    let type_name = String::from_utf8_lossy(subtype);
+                    results.push(annot_fail(
+                        "28-006",
+                        *page_num,
+                        &format!(
+                            "/{type_name} annotation (obj {}.{}) uses a subtype not defined in ISO 32000 and does not meet 7.18.1",
                             annot_id.0, annot_id.1
                         ),
                         &format!("/{type_name}"),
@@ -446,6 +478,66 @@ fn check_annot_accessible_text(
     }
 }
 
+/// 28-018: count painting operations in a `PrinterMark`'s normal appearance
+/// stream that are not enclosed in `/Artifact` marked content. Returns `None`
+/// when there is no appearance stream to inspect.
+fn printer_mark_unmarked_content(doc: &lopdf::Document, annot: &lopdf::Dictionary) -> Option<u32> {
+    let ap = annot
+        .get(b"AP")
+        .ok()
+        .and_then(|o| resolve_obj(doc, o))?
+        .as_dict()
+        .ok()?;
+    let normal = ap.get(b"N").ok().and_then(|o| resolve_obj(doc, o))?;
+    let stream = if let Ok(s) = normal.as_stream() {
+        s
+    } else {
+        // Appearance sub-dictionary: take the first state
+        normal
+            .as_dict()
+            .ok()?
+            .iter()
+            .find_map(|(_, v)| resolve_obj(doc, v).and_then(|o| o.as_stream().ok()))?
+    };
+    let data = stream.decompressed_content().ok()?;
+    let content = lopdf::content::Content::decode(&data).ok()?;
+    let mut artifact_depth = 0u32;
+    let mut mc_depth = 0u32;
+    let mut unmarked = 0u32;
+    for op in &content.operations {
+        match op.operator.as_str() {
+            "BMC" | "BDC" => {
+                mc_depth += 1;
+                if op.operands.first().and_then(|o| o.as_name().ok()) == Some(b"Artifact")
+                    || artifact_depth > 0
+                {
+                    artifact_depth += 1;
+                }
+            }
+            "EMC" => {
+                mc_depth = mc_depth.saturating_sub(1);
+                artifact_depth = artifact_depth.saturating_sub(1);
+            }
+            "Tj" | "TJ" | "'" | "\"" | "Do" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "S"
+            | "s" | "sh" | "BI" | "EI" => {
+                if artifact_depth == 0 {
+                    unmarked += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    let _ = mc_depth;
+    (unmarked > 0).then_some(unmarked)
+}
+
+fn resolve_obj<'a>(doc: &'a lopdf::Document, obj: &'a lopdf::Object) -> Option<&'a lopdf::Object> {
+    match obj {
+        lopdf::Object::Reference(id) => doc.get_object(*id).ok(),
+        other => Some(other),
+    }
+}
+
 /// Check Screen annotations for required media clip properties.
 fn check_screen_annotation(
     doc: &lopdf::Document,
@@ -592,6 +684,42 @@ fn check_file_attachment(
             "/FileAttachment",
         ));
     }
+}
+
+/// Annotation subtypes defined in ISO 32000-1 Table 169 (plus the ISO 32000-2
+/// additions `RichMedia` and Projection).
+fn is_iso32000_annotation_subtype(subtype: &[u8]) -> bool {
+    matches!(
+        subtype,
+        b"Text"
+            | b"Link"
+            | b"FreeText"
+            | b"Line"
+            | b"Square"
+            | b"Circle"
+            | b"Polygon"
+            | b"PolyLine"
+            | b"Highlight"
+            | b"Underline"
+            | b"Squiggly"
+            | b"StrikeOut"
+            | b"Stamp"
+            | b"Caret"
+            | b"Ink"
+            | b"Popup"
+            | b"FileAttachment"
+            | b"Sound"
+            | b"Movie"
+            | b"Widget"
+            | b"Screen"
+            | b"PrinterMark"
+            | b"TrapNet"
+            | b"Watermark"
+            | b"3D"
+            | b"Redact"
+            | b"RichMedia"
+            | b"Projection"
+    )
 }
 
 /// Resolve an object (direct dictionary or reference) to a dictionary.

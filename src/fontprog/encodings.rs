@@ -1,6 +1,6 @@
 //! Code → glyph-name tables for the predefined simple-font encodings of
-//! ISO 32000-1 Annex D (StandardEncoding, WinAnsiEncoding, MacRomanEncoding,
-//! MacExpertEncoding and the built-in encoding of the Symbol font).
+//! ISO 32000-1 Annex D (`StandardEncoding`, `WinAnsiEncoding`, `MacRomanEncoding`,
+//! `MacExpertEncoding` and the built-in encoding of the Symbol font).
 //!
 //! Generated from the encoding tables shipped with `lopdf` (MIT), expressed as
 //! Adobe Glyph List names so they can be resolved against embedded Type 1 / CFF

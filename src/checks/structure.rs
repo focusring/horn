@@ -17,6 +17,10 @@ impl Check for StructureChecks {
         1
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["01-x01", "01-x02", "02-001", "02-003", "02-004"]
+    }
+
     fn description(&self) -> &'static str {
         "Structure: tagged PDF, StructTreeRoot, MarkInfo, role mapping"
     }

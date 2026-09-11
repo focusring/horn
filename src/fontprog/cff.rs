@@ -6,12 +6,20 @@
 //! charset (glyph names or CIDs), and the advance width encoded at the start
 //! of each Type 2 charstring.
 
+// Binary font-format parsing: offsets, counts and DICT operands are bounded by the format.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap
+)]
+
 use std::collections::HashMap;
 
 /// A parsed CFF font program.
 #[derive(Debug)]
 pub struct CffFont {
-    /// Number of glyphs (entries in the CharStrings INDEX).
+    /// Number of glyphs (entries in the `CharStrings` INDEX).
     pub glyph_count: usize,
     /// Charset: for name-keyed fonts the SID of every glyph, for CID-keyed
     /// fonts the CID of every glyph (index = GID). Empty if the charset is a
@@ -29,11 +37,11 @@ pub struct CffFont {
     privates: Vec<PrivateDict>,
     /// GID -> font DICT index (CID fonts only).
     fd_select: Vec<u8>,
-    /// CharstringType from the Top DICT (2 is the only one interpreted).
+    /// `CharstringType` from the Top DICT (2 is the only one interpreted).
     charstring_type: i32,
-    /// Horizontal scale of the FontMatrix (default 0.001).
+    /// Horizontal scale of the `FontMatrix` (default 0.001).
     font_matrix_scale: f64,
-    /// Built-in encoding: code → GID (None = StandardEncoding by name).
+    /// Built-in encoding: code → GID (None = `StandardEncoding` by name).
     encoding: Option<HashMap<u8, u16>>,
 }
 
@@ -116,17 +124,16 @@ impl CffFont {
 
     /// Glyph name for a code in the font's built-in encoding (name-keyed
     /// fonts). With the standard (or expert) predefined encoding, the code is
-    /// looked up in StandardEncoding and resolved by name.
+    /// looked up in `StandardEncoding` and resolved by name.
     pub fn builtin_glyph_name(&self, code: u8) -> Option<String> {
         if self.is_cid {
             return None;
         }
-        match &self.encoding {
-            Some(map) => self.glyph_name(usize::from(*map.get(&code)?)),
-            None => {
-                let name = super::encodings::STANDARD[usize::from(code)]?;
-                self.gid_by_name(name.as_bytes()).map(|_| name.to_string())
-            }
+        if let Some(map) = &self.encoding {
+            self.glyph_name(usize::from(*map.get(&code)?))
+        } else {
+            let name = super::encodings::STANDARD[usize::from(code)]?;
+            self.gid_by_name(name.as_bytes()).map(|_| name.to_string())
         }
     }
 
@@ -156,10 +163,8 @@ impl CffFont {
         if self.is_cid {
             return None;
         }
-        (0..self.glyph_count).find(|&gid| {
-            self.glyph_name(gid)
-                .is_some_and(|n| n.as_bytes() == name)
-        })
+        (0..self.glyph_count)
+            .find(|&gid| self.glyph_name(gid).is_some_and(|n| n.as_bytes() == name))
     }
 
     /// CID of a GID (CID-keyed fonts). For name-keyed fonts the GID is returned.
@@ -190,7 +195,7 @@ impl CffFont {
     }
 
     /// Advance width of a glyph in font units (1/1000 em for CFF fonts with the
-    /// default FontMatrix), read from the start of its Type 2 charstring.
+    /// default `FontMatrix`), read from the start of its Type 2 charstring.
     pub fn advance_width(&self, gid: usize) -> Option<f64> {
         if self.charstring_type != 2 {
             return None;
@@ -279,7 +284,10 @@ fn parse_dict(data: &[u8]) -> HashMap<u16, Vec<f64>> {
                 i += 1;
             }
             28 => {
-                let v = i16::from_be_bytes([*data.get(i + 1).unwrap_or(&0), *data.get(i + 2).unwrap_or(&0)]);
+                let v = i16::from_be_bytes([
+                    *data.get(i + 1).unwrap_or(&0),
+                    *data.get(i + 2).unwrap_or(&0),
+                ]);
                 operands.push(f64::from(v));
                 i += 3;
             }
@@ -369,7 +377,9 @@ fn parse_charset(data: &[u8], offset: usize, glyph_count: usize) -> Vec<u16> {
     match offset {
         0 => {
             // ISOAdobe: SID i for GID i
-            return (0..glyph_count).filter_map(|g| u16::try_from(g).ok()).collect();
+            return (0..glyph_count)
+                .filter_map(|g| u16::try_from(g).ok())
+                .collect();
         }
         1 | 2 => return Vec::new(), // Expert charsets: not modelled
         _ => {}
@@ -382,21 +392,27 @@ fn parse_charset(data: &[u8], offset: usize, glyph_count: usize) -> Vec<u16> {
     match format {
         0 => {
             while out.len() < glyph_count {
-                let Some(b) = data.get(pos..pos + 2) else { break };
+                let Some(b) = data.get(pos..pos + 2) else {
+                    break;
+                };
                 out.push(u16::from_be_bytes([b[0], b[1]]));
                 pos += 2;
             }
         }
         1 | 2 => {
             while out.len() < glyph_count {
-                let Some(b) = data.get(pos..pos + 2) else { break };
+                let Some(b) = data.get(pos..pos + 2) else {
+                    break;
+                };
                 let first = u16::from_be_bytes([b[0], b[1]]);
                 let n_left = if format == 1 {
                     let v = u16::from(*data.get(pos + 2).unwrap_or(&0));
                     pos += 3;
                     v
                 } else {
-                    let Some(b2) = data.get(pos + 2..pos + 4) else { break };
+                    let Some(b2) = data.get(pos + 2..pos + 4) else {
+                        break;
+                    };
                     pos += 4;
                     u16::from_be_bytes([b2[0], b2[1]])
                 };
@@ -466,7 +482,7 @@ fn parse_encoding(data: &[u8], offset: usize, charset: &[u16]) -> Option<HashMap
     Some(map)
 }
 
-/// Parses FDSelect into a per-GID font DICT index.
+/// Parses `FDSelect` into a per-GID font DICT index.
 fn parse_fd_select(data: &[u8], offset: usize, glyph_count: usize) -> Vec<u8> {
     let mut out = vec![0u8; glyph_count];
     let Some(&format) = data.get(offset) else {
@@ -479,7 +495,9 @@ fn parse_fd_select(data: &[u8], offset: usize, glyph_count: usize) -> Vec<u8> {
             }
         }
         3 => {
-            let Some(b) = data.get(offset + 1..offset + 3) else { return out };
+            let Some(b) = data.get(offset + 1..offset + 3) else {
+                return out;
+            };
             let n_ranges = u16::from_be_bytes([b[0], b[1]]) as usize;
             let mut pos = offset + 3;
             let sentinel_pos = offset + 3 + n_ranges * 3;
@@ -487,7 +505,9 @@ fn parse_fd_select(data: &[u8], offset: usize, glyph_count: usize) -> Vec<u8> {
                 .get(sentinel_pos..sentinel_pos + 2)
                 .map_or(glyph_count, |b| u16::from_be_bytes([b[0], b[1]]) as usize);
             for i in 0..n_ranges {
-                let Some(b) = data.get(pos..pos + 3) else { break };
+                let Some(b) = data.get(pos..pos + 3) else {
+                    break;
+                };
                 let first = u16::from_be_bytes([b[0], b[1]]) as usize;
                 let fd = b[2];
                 let next = if i + 1 < n_ranges {
@@ -569,7 +589,8 @@ impl WidthInterp<'_> {
                     // callgsubr
                     if let Some(idx) = self.stack.pop() {
                         let n = idx as i64 + bias(self.gsubrs.len());
-                        if let Some(sub) = usize::try_from(n).ok().and_then(|n| self.gsubrs.get(n)) {
+                        if let Some(sub) = usize::try_from(n).ok().and_then(|n| self.gsubrs.get(n))
+                        {
                             self.depth += 1;
                             let sub = sub.clone();
                             self.run(&sub);
@@ -580,7 +601,10 @@ impl WidthInterp<'_> {
                 }
                 11 => return, // return
                 28 => {
-                    let v = i16::from_be_bytes([*cs.get(i + 1).unwrap_or(&0), *cs.get(i + 2).unwrap_or(&0)]);
+                    let v = i16::from_be_bytes([
+                        *cs.get(i + 1).unwrap_or(&0),
+                        *cs.get(i + 2).unwrap_or(&0),
+                    ]);
                     self.stack.push(f64::from(v));
                     i += 3;
                 }
@@ -590,12 +614,14 @@ impl WidthInterp<'_> {
                 }
                 247..=250 => {
                     let b1 = i32::from(*cs.get(i + 1).unwrap_or(&0));
-                    self.stack.push(f64::from((i32::from(b0) - 247) * 256 + b1 + 108));
+                    self.stack
+                        .push(f64::from((i32::from(b0) - 247) * 256 + b1 + 108));
                     i += 2;
                 }
                 251..=254 => {
                     let b1 = i32::from(*cs.get(i + 1).unwrap_or(&0));
-                    self.stack.push(f64::from(-(i32::from(b0) - 251) * 256 - b1 - 108));
+                    self.stack
+                        .push(f64::from(-(i32::from(b0) - 251) * 256 - b1 - 108));
                     i += 2;
                 }
                 255 => {

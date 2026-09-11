@@ -30,6 +30,10 @@ impl Check for NestingChecks {
         9
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["09-004", "09-005", "09-006", "09-007", "09-008"]
+    }
+
     fn description(&self) -> &'static str {
         "Structure nesting: Table/List/TOC child type rules"
     }
@@ -80,6 +84,7 @@ fn walk_and_validate(
         b"L" => validate_list_children(&children, results),
         b"LI" => validate_li_children(&children, results),
         b"TOC" => validate_toc_children(&children, results),
+        b"TOCI" => validate_toci_children(&children, results),
         b"Ruby" => validate_ruby_children(&children, results),
         b"Warichu" => validate_warichu_children(&children, results),
         _ => {}
@@ -356,6 +361,23 @@ fn validate_toc_children(children: &[ChildInfo], results: &mut Vec<CheckResult>)
     }
 }
 
+/// TOCI may only contain Lbl, Reference, `NonStruct`, P and nested TOC
+/// (ISO 32000-1 Table 333).
+fn validate_toci_children(children: &[ChildInfo], results: &mut Vec<CheckResult>) {
+    for child in children {
+        let ct = child.elem_type.as_slice();
+        if !matches!(ct, b"Lbl" | b"Reference" | b"NonStruct" | b"P" | b"TOC") {
+            let type_name = String::from_utf8_lossy(ct);
+            results.push(fail(
+                "09-006",
+                &format!(
+                    "{type_name} is not allowed as a child of TOCI (only Lbl/Reference/NonStruct/P/TOC)"
+                ),
+            ));
+        }
+    }
+}
+
 /// Ruby may only contain RB, RT and RP, in that order (ISO 32000-1 Table 338).
 fn validate_ruby_children(children: &[ChildInfo], results: &mut Vec<CheckResult>) {
     let mut last_rank = 0u8;
@@ -386,7 +408,10 @@ fn validate_ruby_children(children: &[ChildInfo], results: &mut Vec<CheckResult>
         results.push(fail("09-007", "Ruby element has no RB (base text) child"));
     }
     if !children.is_empty() && !children.iter().any(|c| c.elem_type == b"RT") {
-        results.push(fail("09-007", "Ruby element has no RT (annotation text) child"));
+        results.push(fail(
+            "09-007",
+            "Ruby element has no RT (annotation text) child",
+        ));
     }
 }
 

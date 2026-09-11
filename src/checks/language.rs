@@ -23,6 +23,10 @@ impl Check for LanguageChecks {
         11
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["11-001", "11-002", "11-003", "11-004", "11-005", "11-006"]
+    }
+
     fn description(&self) -> &'static str {
         "Natural language: BCP 47 validation, language identification"
     }

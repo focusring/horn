@@ -5,8 +5,8 @@ use anyhow::Result;
 
 /// Checkpoint 31: Font checks.
 ///
-/// Validates font embedding (31-009), composite-font CMap consistency
-/// (31-001 … 31-008), CIDToGIDMap (31-004 / 31-005) and simple-font encodings
+/// Validates font embedding (31-009), composite-font `CMap` consistency
+/// (31-001 … 31-008), `CIDToGIDMap` (31-004 / 31-005) and simple-font encodings
 /// (31-019 … 31-022). Font-program level checks live in `font_program.rs`.
 pub struct FontChecks;
 
@@ -17,6 +17,13 @@ impl Check for FontChecks {
 
     fn checkpoint(&self) -> u8 {
         31
+    }
+
+    fn rules(&self) -> &'static [&'static str] {
+        &[
+            "31-001", "31-002", "31-003", "31-004", "31-005", "31-006", "31-007", "31-008",
+            "31-009", "31-019", "31-020", "31-021", "31-022", "31-x01", "31-x02", "31-x04",
+        ]
     }
 
     fn description(&self) -> &'static str {
@@ -57,7 +64,9 @@ impl Check for FontChecks {
                 let font_id = font_refs
                     .and_then(|f| f.get(font_name).ok())
                     .and_then(|o| o.as_reference().ok());
-                let rendered = font_id.and_then(|id| usage.get(&id)).is_none_or(|u| u.rendered);
+                let rendered = font_id
+                    .and_then(|id| usage.get(&id))
+                    .is_none_or(|u| u.rendered);
 
                 if rendered {
                     check_font_embedding(
@@ -347,7 +356,9 @@ fn check_encoding_differences(
     // 31-022: non-symbolic TrueType fonts may only use Adobe Glyph List names in
     // /Differences (ISO 14289-1, 7.21.6). `uniXXXX`/`uXXXX` names are AGL-compliant
     // by construction (AGL specification section 3).
-    if subtype.as_deref() == Some(b"TrueType") && !is_symbolic_font(doc, font_dict) && !non_agl.is_empty()
+    if subtype.as_deref() == Some(b"TrueType")
+        && !is_symbolic_font(doc, font_dict)
+        && !non_agl.is_empty()
     {
         non_agl.sort();
         non_agl.dedup();
@@ -704,6 +715,28 @@ fn check_type0_cmap_encoding(
     let stream_str = String::from_utf8_lossy(&stream_data);
     let cmap_csi = extract_cmap_cidsysteminfo(&stream_str);
     let cmap_stream_wmode = extract_cmap_wmode(&stream_str);
+
+    // 31-008: a `usecmap` operator inside the CMap program may only reference
+    // a predefined CMap (ISO 32000-1 Table 118).
+    let parsed = crate::content::cmap::EncodingCMap::parse(&stream_data);
+    if let Some(used) = parsed.use_cmap.as_deref() {
+        if !is_valid_predefined_cmap(used.as_bytes()) {
+            results.push(CheckResult {
+                rule_id: "31-008".to_string(),
+                checkpoint: 31,
+                description: format!(
+                    "Font /{font_label}: embedded CMap uses non-predefined CMap /{used} via usecmap"
+                ),
+                severity: Severity::Error,
+                outcome: CheckOutcome::Fail {
+                    message: format!(
+                        "Font /{font_label}: embedded CMap program references /{used} with usecmap, which is not a predefined CMap of ISO 32000-1 Table 118"
+                    ),
+                    location: location.cloned(),
+                },
+            });
+        }
+    }
 
     // Check WMode consistency between CMap dictionary and stream content
     if let Ok(dict_wmode) = cmap_dict.get(b"WMode").and_then(lopdf::Object::as_i64) {

@@ -20,6 +20,10 @@ impl Check for NoteChecks {
         19
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["19-003", "19-004"]
+    }
+
     fn description(&self) -> &'static str {
         "Notes: Note elements must have unique IDs"
     }

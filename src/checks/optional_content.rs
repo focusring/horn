@@ -26,6 +26,10 @@ impl Check for OptionalContentChecks {
         20
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["20-001", "20-002", "20-003", "20-x01"]
+    }
+
     fn description(&self) -> &'static str {
         "Optional content: configuration names, no auto-state"
     }
@@ -78,7 +82,13 @@ fn check_default_config(
         return;
     };
 
-    check_config_dict(d_dict, doc, "Default OC configuration /D", "20-002", results);
+    check_config_dict(
+        d_dict,
+        doc,
+        "Default OC configuration /D",
+        "20-002",
+        results,
+    );
 }
 
 /// 20-001 / 20-003: every configuration dictionary in the `/Configs` array.
@@ -125,7 +135,10 @@ fn check_config_dict(
                 _ => true,
             };
             if is_empty {
-                results.push(fail(name_rule, &format!("{label}: /Name is empty or not a string")));
+                results.push(fail(
+                    name_rule,
+                    &format!("{label}: /Name is empty or not a string"),
+                ));
             } else {
                 results.push(pass(name_rule, &format!("{label} has a valid /Name")));
             }

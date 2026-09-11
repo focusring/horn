@@ -19,6 +19,10 @@ impl Check for SecurityChecks {
         26
     }
 
+    fn rules(&self) -> &'static [&'static str] {
+        &["26-001", "26-002", "26-x01"]
+    }
+
     fn description(&self) -> &'static str {
         "Security: encryption must not block assistive technology access"
     }
