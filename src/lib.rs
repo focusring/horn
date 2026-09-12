@@ -5,6 +5,7 @@ pub mod fontprog;
 pub mod matterhorn;
 pub mod model;
 pub mod output;
+pub mod pdfua2;
 
 use crate::checks::CheckRegistry;
 use crate::document::HornDocument;

@@ -9,6 +9,7 @@ export default defineConfig({
     },
   },
   base: '/',
+  cleanUrls: true,
   title: 'Horn',
   description: 'Open-source PDF/UA accessibility checker based on the Matterhorn Protocol',
   head: [

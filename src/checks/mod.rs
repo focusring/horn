@@ -14,12 +14,14 @@ pub mod language;
 pub mod lists;
 pub mod math;
 pub mod metadata;
+pub mod namespaces;
 pub mod nesting;
 pub mod notes;
 pub mod optional_content;
 pub mod security;
 pub mod structure;
 pub mod tables;
+pub mod ua2;
 pub mod version;
 pub mod xfa;
 pub mod xobjects;
@@ -61,8 +63,12 @@ pub trait Check: Send + Sync {
 }
 
 /// Matterhorn checkpoint number of a rule id (`"28-010"` → 28, `"15-x04"` → 15,
-/// `"baseline"` → 0).
+/// `"baseline"` → 0). PDF/UA-2 rules (`"ua2:8.8-1"`) report the checkpoint they
+/// are grouped under in [`crate::pdfua2`].
 pub fn checkpoint_of(rule_id: &str) -> u8 {
+    if let Some(cp) = crate::pdfua2::checkpoint(rule_id) {
+        return cp;
+    }
     rule_id.get(..2).and_then(|cp| cp.parse().ok()).unwrap_or(0)
 }
 
@@ -99,6 +105,11 @@ impl CheckRegistry {
             Box::new(nesting::NestingChecks),
             Box::new(annot_struct::AnnotStructChecks),
             Box::new(xobjects::XObjectChecks),
+            // PDF/UA-2 only (ISO 14289-2); skipped for PDF/UA-1 documents
+            Box::new(ua2::identification::Ua2IdentificationChecks),
+            Box::new(ua2::structure::Ua2StructureChecks),
+            Box::new(ua2::annotations::Ua2AnnotationChecks),
+            Box::new(ua2::destinations::Ua2DestinationChecks),
             Box::new(human_review::HumanReviewChecks),
         ];
         Self { checks }

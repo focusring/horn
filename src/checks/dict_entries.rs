@@ -1,6 +1,7 @@
 use crate::checks::Check;
+use crate::checks::namespaces;
 use crate::document::HornDocument;
-use crate::model::{CheckOutcome, CheckResult, Severity};
+use crate::model::{CheckOutcome, CheckResult, Severity, Standard};
 use anyhow::Result;
 
 /// Checkpoint 07: Dictionary entry validation + structure integrity.
@@ -244,6 +245,7 @@ fn check_suspects_flag(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
 /// Walks the structure tree. Any element with a /S value that is neither a
 /// standard type nor present in the `RoleMap` is a failure.
 fn check_unmapped_types(doc: &mut HornDocument, results: &mut Vec<CheckResult>) {
+    let standard = doc.standard();
     let Ok(catalog) = doc.raw_catalog() else {
         return;
     };
@@ -261,7 +263,14 @@ fn check_unmapped_types(doc: &mut HornDocument, results: &mut Vec<CheckResult>) 
 
     // Walk the structure tree and collect all non-standard unmapped types
     let mut unmapped_types = Vec::new();
-    walk_struct_elements(lopdf_doc, struct_tree, role_map, &mut unmapped_types, 0);
+    walk_struct_elements(
+        lopdf_doc,
+        struct_tree,
+        role_map,
+        standard,
+        &mut unmapped_types,
+        0,
+    );
 
     if unmapped_types.is_empty() {
         results.push(pass(
@@ -287,6 +296,7 @@ fn walk_struct_elements(
     doc: &lopdf::Document,
     dict: &lopdf::Dictionary,
     role_map: Option<&lopdf::Dictionary>,
+    standard: Standard,
     unmapped: &mut Vec<String>,
     depth: usize,
 ) {
@@ -297,12 +307,23 @@ fn walk_struct_elements(
     // Check /S (structure type) on this element
     if let Ok(s_obj) = dict.get(b"S") {
         if let Ok(type_name) = s_obj.as_name() {
-            if !is_standard_structure_type(type_name) {
-                // Check if it's in the RoleMap
-                let is_mapped = role_map.is_some_and(|rm| rm.get(type_name).is_ok());
-                if !is_mapped {
-                    unmapped.push(String::from_utf8_lossy(type_name).to_string());
-                }
+            let is_mapped = if dict.get(b"NS").is_ok() {
+                // PDF 2.0 namespaced element: resolve through /RoleMapNS and /RoleMap.
+                // The Artifact structure type only exists in PDF 2.0 / PDF/UA-2.
+                let qt = namespaces::resolve_qualified_type(doc, role_map, dict);
+                qt.is_standard() && (standard == Standard::Ua2 || qt.name != b"Artifact")
+            } else {
+                is_standard_structure_type(type_name)
+                    || (standard == Standard::Ua2 && type_name == b"Artifact")
+                    || role_map.is_some_and(|rm| rm.get(type_name).is_ok())
+            };
+            if !is_mapped {
+                let name = String::from_utf8_lossy(type_name);
+                let shown = match namespaces::element_namespace(doc, dict) {
+                    Some(ns) => format!("{name} (namespace {ns})"),
+                    None => name.into_owned(),
+                };
+                unmapped.push(shown);
             }
         }
     }
@@ -314,19 +335,19 @@ fn walk_struct_elements(
         lopdf::Object::Array(arr) => {
             for item in arr {
                 if let Ok(child_dict) = resolve_to_dict(doc, item) {
-                    walk_struct_elements(doc, child_dict, role_map, unmapped, depth + 1);
+                    walk_struct_elements(doc, child_dict, role_map, standard, unmapped, depth + 1);
                 }
             }
         }
         lopdf::Object::Reference(ref_id) => {
             if let Ok(obj) = doc.get_object(*ref_id) {
                 if let Ok(child_dict) = obj.as_dict() {
-                    walk_struct_elements(doc, child_dict, role_map, unmapped, depth + 1);
+                    walk_struct_elements(doc, child_dict, role_map, standard, unmapped, depth + 1);
                 }
             }
         }
         lopdf::Object::Dictionary(d) => {
-            walk_struct_elements(doc, d, role_map, unmapped, depth + 1);
+            walk_struct_elements(doc, d, role_map, standard, unmapped, depth + 1);
         }
         _ => {} // Integer MCIDs are leaf content, skip
     }

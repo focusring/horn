@@ -10,7 +10,7 @@
 
 Open-source PDF/UA accessibility checker based on the Matterhorn Protocol.
 
-Horn validates PDF files against PDF/UA-1 (ISO 14289-1) and covers **every failure condition of the [Matterhorn Protocol 1.1](https://pdfa.org/resource/the-matterhorn-protocol/)** (137 index entries): the 87 machine-checkable conditions are implemented as automated checks, the 48 human-judgment conditions are reported as manual-review items, and the 2 without a defined test are reported as not applicable. Every finding carries the official Matterhorn index (e.g. `28-010`). Horn scores 100% on the [veraPDF PDF/UA-1 test corpus](https://github.com/veraPDF/veraPDF-corpus) (297 files) and passes the PDF Association's PDF/UA-1 Reference Suite. It is designed as a cross-platform, CI/CD-ready alternative to [PAC 2024](https://pac.pdf-accessibility.org/).
+Horn validates PDF files against PDF/UA-1 (ISO 14289-1) and covers **every failure condition of the [Matterhorn Protocol 1.1](https://pdfa.org/resource/the-matterhorn-protocol/)** (137 index entries): the 87 machine-checkable conditions are implemented as automated checks, the 48 human-judgment conditions are reported as manual-review items, and the 2 without a defined test are reported as not applicable. Every finding carries the official Matterhorn index (e.g. `28-010`). Horn scores 100% on the [veraPDF PDF/UA-1 test corpus](https://github.com/veraPDF/veraPDF-corpus) (297 files) and passes the PDF Association's PDF/UA-1 Reference Suite. PDF/UA-2 (ISO 14289-2) documents get the same checks plus 37 PDF/UA-2-specific rules (PDF 2.0 namespaces, structure destinations, annotation artifacts, `pdfuaid:rev`) and score 100% on the veraPDF PDF/UA-2 corpus (138 files). It is designed as a cross-platform, CI/CD-ready alternative to [PAC 2024](https://pac.pdf-accessibility.org/).
 
 ## Features
 
@@ -18,6 +18,7 @@ Horn validates PDF files against PDF/UA-1 (ISO 14289-1) and covers **every failu
 - **CI/CD native**: SARIF (GitHub Code Scanning), JUnit XML, JSON output formats
 - **Cross-platform**: Linux, macOS, Windows — no JVM or GUI required
 - **Complete Matterhorn coverage**: 87/87 machine-checkable conditions automated, 48/48 human-judgment conditions surfaced for manual review (`horn coverage` prints the matrix)
+- **PDF/UA-1 and PDF/UA-2**: the standard is auto-detected from `pdfuaid:part`; PDF/UA-2 rules use interim `ua2:<clause>-<test>` ids until the Matterhorn Protocol 2.0 is published
 - **Deep font analysis**: parses embedded TrueType, CFF and Type 1 font programs to verify glyph coverage, CharSet/CIDSet, widths, cmap subtables and Unicode mapping
 - **Extensible**: `Check` trait for adding custom checks
 
@@ -140,6 +141,7 @@ Horn implements checks across these Matterhorn Protocol checkpoints:
 | images | 13 | Figure alt text presence |
 | annotations | 28 | Tab order, link destinations, widget accessibility |
 | lists | 16 | L/LI/Lbl/LBody nesting |
+| ua2/* | — | PDF/UA-2 only: identification schema, PDF 2.0 namespaces, structure destinations, annotation and form rules |
 
 Use `horn list-checks` to see all registered checks.
 
@@ -157,6 +159,7 @@ Horn uses the [veraPDF test corpus](https://github.com/veraPDF/veraPDF-corpus) (
 ```bash
 git clone --recurse-submodules https://github.com/focusring/horn.git
 horn validate tests/fixtures/verapdf-corpus/PDF_UA-1/ --recurse
+horn validate tests/fixtures/verapdf-corpus/PDF_UA-2/ --recurse
 ```
 
 ## License

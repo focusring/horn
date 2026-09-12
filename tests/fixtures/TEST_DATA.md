@@ -206,9 +206,10 @@ steps:
 ### Current results
 
 Horn validates **297/297** UA-1 corpus files as expected (141/141 pass files
-compliant, 156/156 fail files detected), all 10 reference-suite files as
-compliant, and all 93 generated / pdfcheck fixtures as expected. The
-`coverage_baseline` test in `tests/corpus.rs` enforces these numbers.
+compliant, 156/156 fail files detected), **138/138** UA-2 corpus files as
+expected (54/54 pass, 84/84 fail), all 10 reference-suite files as compliant,
+and all 93 generated / pdfcheck fixtures as expected. The `coverage_baseline`
+test in `tests/corpus.rs` enforces these numbers.
 
 ## PDF/UA Reference Suite (Local Fixtures)
 

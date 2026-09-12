@@ -141,10 +141,11 @@ fn corpus_ua2_pass_files() {
         rate
     );
 
+    // BASELINE — updated 2026-09-12: 100% of the veraPDF PDF/UA-2 corpus (54/54 pass files)
     assert!(
-        rate >= 0.0,
-        "UA-2 pass detection rate {:.1}% (baseline to be set)",
-        rate
+        non_compliant.is_empty(),
+        "UA-2 pass files must all be compliant (baseline: 54/54):\n{}",
+        non_compliant.join("\n")
     );
 }
 
@@ -217,10 +218,11 @@ fn corpus_ua2_fail_files() {
         rate
     );
 
+    // BASELINE — updated 2026-09-12: 100% of the veraPDF PDF/UA-2 corpus (84/84 fail files)
     assert!(
-        rate >= 0.0,
-        "UA-2 fail detection rate {:.1}% (baseline to be set)",
-        rate
+        missed.is_empty(),
+        "UA-2 fail files must all be detected (baseline: 84/84):\n{}",
+        missed.join("\n")
     );
 }
 
@@ -404,6 +406,21 @@ fn coverage_baseline() {
         })
         .count();
 
+    // --- UA-2 pass / fail ---
+    let ua2_pass = collect_pdfs(&fixtures.join("verapdf-corpus/PDF_UA-2"), "-pass-");
+    let ua2_pass_compliant = ua2_pass
+        .iter()
+        .filter(|p| horn::validate_file(p).is_compliant())
+        .count();
+    let ua2_fail = collect_pdfs(&fixtures.join("verapdf-corpus/PDF_UA-2"), "-fail-");
+    let ua2_fail_detected = ua2_fail
+        .iter()
+        .filter(|p| {
+            let r = horn::validate_file(p);
+            r.failed() > 0 || r.error.is_some()
+        })
+        .count();
+
     // --- Generated fixtures ---
     let gen_pass = collect_pdfs(&fixtures.join("generated"), "-pass.");
     let gen_pass_compliant = gen_pass
@@ -446,6 +463,18 @@ fn coverage_baseline() {
         ua1_fail_detected,
         ua1_fail.len(),
         ua1_fail_detected as f64 / ua1_fail.len().max(1) as f64 * 100.0
+    );
+    eprintln!(
+        "║ UA-2 pass rate:   {:>3}/{:<3} compliant ({:.0}%)     ║",
+        ua2_pass_compliant,
+        ua2_pass.len(),
+        ua2_pass_compliant as f64 / ua2_pass.len().max(1) as f64 * 100.0
+    );
+    eprintln!(
+        "║ UA-2 fail detect: {:>3}/{:<3} detected  ({:.0}%)     ║",
+        ua2_fail_detected,
+        ua2_fail.len(),
+        ua2_fail_detected as f64 / ua2_fail.len().max(1) as f64 * 100.0
     );
     eprintln!(
         "║ Generated pass:   {:>3}/{:<3} compliant ({:.0}%)     ║",
@@ -515,6 +544,28 @@ fn coverage_baseline() {
         ua1_fail_detected,
         ua1_fail.len()
     );
+    assert!(
+        ua2_pass.len() >= 54,
+        "Expected at least 54 UA-2 pass files, found {}",
+        ua2_pass.len()
+    );
+    assert!(
+        ua2_fail.len() >= 84,
+        "Expected at least 84 UA-2 fail files, found {}",
+        ua2_fail.len()
+    );
+    assert!(
+        ua2_pass_compliant >= 54,
+        "UA-2 pass rate regression: {}/{} (baseline: 54/54)",
+        ua2_pass_compliant,
+        ua2_pass.len()
+    );
+    assert!(
+        ua2_fail_detected >= 84,
+        "UA-2 fail detection regression: {}/{} (baseline: 84/84)",
+        ua2_fail_detected,
+        ua2_fail.len()
+    );
     // Every one of the 136 Matterhorn conditions is reported (machine results
     // plus manual-review items), so a simple file yields well over 90 results.
     assert!(
@@ -565,8 +616,38 @@ fn matterhorn_conditions_fully_covered() {
     // Every emitted rule id is either a Matterhorn index or an extension id.
     for id in &implemented {
         assert!(
-            horn::matterhorn::condition(id).is_some() || horn::matterhorn::is_extension_rule(id),
-            "rule id {id} is neither a Matterhorn condition nor an extension rule"
+            horn::matterhorn::condition(id).is_some()
+                || horn::matterhorn::is_extension_rule(id)
+                || horn::pdfua2::is_ua2_rule(id),
+            "rule id {id} is neither a Matterhorn condition, an extension rule nor a PDF/UA-2 rule"
+        );
+    }
+}
+
+#[test]
+fn pdfua2_rules_fully_covered() {
+    let registry = horn::checks::CheckRegistry::new();
+    let implemented = registry.implemented_rules();
+
+    let missing: Vec<&str> = horn::pdfua2::RULES
+        .iter()
+        .filter(|r| implemented.binary_search(&r.id).is_err())
+        .map(|r| r.id)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "PDF/UA-2 rules without a check: {}",
+        missing.join(", ")
+    );
+
+    // Every emitted ua2: id is catalogued.
+    for id in implemented
+        .iter()
+        .filter(|id| horn::pdfua2::is_ua2_rule(id))
+    {
+        assert!(
+            horn::pdfua2::rule(id).is_some(),
+            "rule id {id} is not in the PDF/UA-2 catalogue"
         );
     }
 }
@@ -593,6 +674,7 @@ fn every_condition_appears_in_a_report() {
 fn result_checkpoints_match_rule_ids() {
     let dir = fixtures().join("verapdf-corpus/PDF_UA-1");
     let mut pdfs = all_pdfs(&dir);
+    pdfs.extend(all_pdfs(&fixtures().join("verapdf-corpus/PDF_UA-2")));
     pdfs.extend(all_pdfs(&fixtures().join("pdfua-reference-suite")));
     pdfs.extend(all_pdfs(&fixtures().join("generated")));
     assert!(!pdfs.is_empty());

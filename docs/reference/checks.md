@@ -19,6 +19,11 @@ protocol use *extension ids* of the form `NN-xNN` (listed at the end).
 Run `horn coverage` (or `horn coverage --json`) to print this matrix from the
 binary you have installed.
 
+PDF/UA-2 (ISO 14289-2:2024) documents — `pdfuaid:part` 2 — get the same checks
+(adapted where PDF 2.0 changes the rules) plus the
+[PDF/UA-2 rules](#pdf-ua-2-iso-14289-2-rules) for the requirements that only
+exist in PDF/UA-2.
+
 ## Outcomes and severities
 
 | Outcome | Meaning |
@@ -356,6 +361,59 @@ These ids do not correspond to a published Matterhorn condition. They catch PDF/
 | 31-x02 | `/CIDSet` is not a valid stream | `fonts` |
 | 31-x04 | `/Differences` array maps a code to `.notdef` | `fonts` |
 
+## PDF/UA-2 (ISO 14289-2) rules
+
+PDF/UA-2 is checked against ISO 14289-2:2024 directly: the Matterhorn Protocol 2.0 for PDF/UA-2 has not been published yet, so there is no official failure-condition index to cite. These rules use **interim ids of the form `ua2:<clause>-<test>`** (the ISO 14289-2 clause and a test number), which mirror the veraPDF PDF/UA-2 validation profile that PAC 2024 also follows; they will be re-mapped once Matterhorn 2.0 is released. They run only for documents whose XMP declares `pdfuaid:part` 2 (see `horn coverage` for the same list from your installed binary).
+
+Requirements that PDF/UA-2 shares with PDF/UA-1 are reported under their Matterhorn 1.1 index by the regular checks. For PDF/UA-2 documents a few of those checks follow PDF 2.0 semantics:
+
+- role mapping is resolved through PDF 2.0 namespaces (`/NS`, `/RoleMapNS`); types in the PDF 2.0 and MathML namespaces are never role mapped, and the `Artifact` structure type is accepted (02-001);
+- an annotation enclosed in an `Artifact` structure element is an artifact and is exempt from the parent-type and accessible-text rules (28-002, 28-004, 28-010, 28-011, 28-012);
+- a link annotation may be enclosed in a `Reference` element (28-011) and needs no `/Contents` when its `Link`/`Reference` element carries content or `/Alt` (28-012);
+- pages with annotations may use `/Tabs /A` or `/W` as well as `/S` (28-009).
+
+Horn validates **138/138** files of the veraPDF PDF/UA-2 corpus as expected (54/54 pass files compliant, 84/84 fail files detected).
+
+| Rule | Clause | Failure condition | Module |
+|------|--------|-------------------|--------|
+| `ua2:5-3` | 5 | The 'part' property of the PDF/UA identification schema does not use the 'pdfuaid' namespace prefix. | `ua2/identification` |
+| `ua2:5-4` | 5 | The 'rev' property of the PDF/UA identification schema does not use the 'pdfuaid' namespace prefix. | `ua2/identification` |
+| `ua2:5-5` | 5 | pdfuaid:rev is missing or its value is not the four-digit year 2024. | `ua2/identification` |
+| `ua2:8.2.4-2` | 8.2.4 | A circular role mapping exists in a namespace RoleMapNS. | `ua2/structure` |
+| `ua2:8.2.4-3` | 8.2.4 | A structure type is role mapped to another type within the same namespace. | `ua2/structure` |
+| `ua2:8.2.5.2-1` | 8.2.5.2 | The structure tree root does not contain a single Document element as its only child. | `ua2/structure` |
+| `ua2:8.2.5.2-2` | 8.2.5.2 | The Document element is not in the PDF 2.0 namespace (http://iso.org/pdf2/ssn). | `ua2/structure` |
+| `ua2:8.2.5.8-1` | 8.2.5.8 | A TOCI element has no Ref entry identifying the content it refers to. | `ua2/structure` |
+| `ua2:8.2.5.12-1` | 8.2.5.12 | The generic H structure type is used; PDF/UA-2 requires numbered headings (Hn). | `ua2/structure` |
+| `ua2:8.2.5.14-1` | 8.2.5.14 | The Note structure type is used; PDF 2.0 deprecates Note in favour of FENote. | `ua2/structure` |
+| `ua2:8.2.5.14-4` | 8.2.5.14 | A FENote element has a NoteType attribute other than Footnote, Endnote or None. | `ua2/structure` |
+| `ua2:8.2.5.25-1` | 8.2.5.25 | A list whose items contain Lbl elements has no ListNumbering attribute, or ListNumbering is None. | `ua2/structure` |
+| `ua2:8.2.5.25-2` | 8.2.5.25 | An LI element contains content that is not enclosed in a Lbl or LBody element. | `ua2/structure` |
+| `ua2:8.2.5.20-2` | 8.2.5.20 | Link annotations enclosed in the same Link or Reference element target different locations. | `ua2/annotations` |
+| `ua2:8.2.5.29-1` | 8.2.5.29 | A MathML structure element is not a child of a Formula element (or of another MathML element). | `ua2/structure` |
+| `ua2:8.4.3-2` | 8.4.3 | An ActualText entry contains Unicode private-use-area code points. | `ua2/structure` |
+| `ua2:8.4.3-3` | 8.4.3 | An Alt entry contains Unicode private-use-area code points. | `ua2/structure` |
+| `ua2:8.8-1` | 8.8 | An intra-document destination (outline item, link, GoTo action) is not a structure destination. | `ua2/destinations` |
+| `ua2:8.8-2` | 8.8 | A GoTo action has no structure destination (SD entry). | `ua2/destinations` |
+| `ua2:8.9.2.2-1` | 8.9.2.2 | An annotation with the Invisible flag is included in the logical structure and is not an artifact. | `ua2/annotations` |
+| `ua2:8.9.2.2-2` | 8.9.2.2 | An annotation with the NoView flag (and without ToggleNoView) is included in the logical structure and is not an artifact. | `ua2/annotations` |
+| `ua2:8.9.2.4.7-1` | 8.9.2.4.7 | A rubber stamp annotation has neither a Name nor a Contents entry. | `ua2/annotations` |
+| `ua2:8.9.2.4.8-1` | 8.9.2.4.8 | An Ink annotation has no Contents entry. | `ua2/annotations` |
+| `ua2:8.9.2.4.9-1` | 8.9.2.4.9 | A Popup annotation is included in the logical structure. | `ua2/annotations` |
+| `ua2:8.9.2.4.10-1` | 8.9.2.4.10 | The file specification of a file attachment annotation has no AFRelationship entry. | `ua2/annotations` |
+| `ua2:8.9.2.4.11-1` | 8.9.2.4.11 | A Sound annotation is present (deprecated in PDF 2.0, not permitted in PDF/UA-2). | `ua2/annotations` |
+| `ua2:8.9.2.4.11-2` | 8.9.2.4.11 | A Movie annotation is present (deprecated in PDF 2.0, not permitted in PDF/UA-2). | `ua2/annotations` |
+| `ua2:8.9.2.4.12-1` | 8.9.2.4.12 | A Screen annotation has no Contents entry. | `ua2/annotations` |
+| `ua2:8.9.2.4.13-1` | 8.9.2.4.13 | A zero-size Widget annotation is included in the logical structure and is not an artifact. | `ua2/annotations` |
+| `ua2:8.9.2.4.19-1` | 8.9.2.4.19 | A 3D annotation has no Contents entry. | `ua2/annotations` |
+| `ua2:8.9.2.4.19-2` | 8.9.2.4.19 | A RichMedia annotation has no Contents entry. | `ua2/annotations` |
+| `ua2:8.9.4.2-1` | 8.9.4.2 | An annotation's Contents entry differs from the Alt entry of its enclosing structure element. | `ua2/annotations` |
+| `ua2:8.10.1-2` | 8.10.1 | A Form structure element contains more than one widget annotation. | `ua2/annotations` |
+| `ua2:8.10.2.3-1` | 8.10.2.3 | A form field widget has neither a Lbl element in its Form structure element nor a Contents entry. | `ua2/annotations` |
+| `ua2:8.10.2.3-2` | 8.10.2.3 | A form field widget with additional actions (AA) has no Contents entry. | `ua2/annotations` |
+| `ua2:8.11.1-2` | 8.11.1 | The Metadata stream in the catalog lacks /Type /Metadata and /Subtype /XML. | `ua2/identification` |
+| `ua2:8.14.1-1` | 8.14.1 | A file specification in the EmbeddedFiles name tree has no Desc entry. | `ua2/identification` |
+
 ## Notes on specific conditions
 
 - **31-003 (Supplement)** — the protocol text says the CIDFont Supplement must not be *less* than the CMap Supplement; ISO 14289-1 7.21.3.1 and the veraPDF corpus require it to be *less than or equal*. Horn follows ISO 14289-1: a CIDFont Supplement greater than the CMap Supplement fails.
@@ -363,6 +421,7 @@ These ids do not correspond to a published Matterhorn condition. They catch PDF/
 - **17-003** — the Unicode requirements for `<Formula>` content are the general 10-001 / 31-027 requirements; Horn reports 17-003 when a document with `<Formula>` elements has a font that fails them.
 - **28-006** — annotations with a subtype not defined in ISO 32000 are validated like any other annotation (28-002, 28-004); a failure is additionally reported under 28-006.
 - **31-009 / 31-011 / 31-016 / 31-018** apply to glyphs *used for rendering*: text shown only in rendering mode 3 (invisible, e.g. OCR layers) is exempt, as required by the protocol.
+- **PDF/UA-2 rules** follow the veraPDF PDF/UA-2 profile where ISO 14289-2 leaves room for interpretation: a `TOCI` without `/Ref` (`ua2:8.2.5.8-1`) and the deprecated `Note` type (`ua2:8.2.5.14-1`) are reported as failures, and structure destinations are required for every outline item, link and GoTo action (`ua2:8.8-1`, `ua2:8.8-2`).
 - **Manual review items** are only emitted when the document contains the feature the condition is about (e.g. 15-001/15-002 only for documents with tables, 03-003 only when JavaScript is present, 31-010 always for embedded fonts, with a warning when the OS/2 `fsType` declares restricted embedding).
 
 ## Check modules
@@ -395,4 +454,8 @@ Run `horn list-checks` to see the registered modules of your installed version.
 | `xobjects` | 30 | Structured Form XObjects painted once (1 rules) |
 | `fonts` | 31 | Font embedding, composite-font CMaps, CIDToGIDMap, simple-font encodings (16 rules) |
 | `font_program` | 10, 17, 31 | Embedded font programs: glyph coverage, CharSet/CIDSet, widths, TrueType cmaps, ToUnicode (18 rules) |
+| `ua2/identification` | 06, 21 | PDF/UA-2: identification schema (part/rev), Metadata stream, embedded-file descriptions (5 rules) |
+| `ua2/structure` | 02, 09, 10, 14, 16, 17, 19 | PDF/UA-2: PDF 2.0 namespaces, Document root, headings, lists, notes, MathML, private-use text (13 rules) |
+| `ua2/annotations` | 28 | PDF/UA-2: annotation artifacts, annotation types, Contents/Alt, form widgets (17 rules) |
+| `ua2/destinations` | 27, 29 | PDF/UA-2: structure destinations for outlines, links and GoTo actions (2 rules) |
 | `human_review` | all | Manual-review items for the 48 human-judgment conditions (48 rules) |
