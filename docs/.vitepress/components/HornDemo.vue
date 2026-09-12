@@ -59,6 +59,19 @@ async function latestNpmVersion(): Promise<string | null> {
   }
 }
 
+async function bundledVersion(base: string): Promise<string> {
+  // Written by docs/scripts/sync-wasm.mjs next to the files it installed, so the
+  // label always names the build that is actually served, even when the script
+  // fell back to another release or to a local wasm-pack output.
+  try {
+    const res = await fetch(`${base}wasm/VERSION`, { cache: 'no-store' })
+    const text = res.ok ? (await res.text()).trim() : ''
+    return text || pkg.version
+  } catch {
+    return pkg.version
+  }
+}
+
 async function loadEngine(src: EngineSource) {
   // Fetch the JS glue code as text and load it as a blob URL module.
   // Files in /public cannot be imported directly by Vite, and the CDN copy
@@ -91,7 +104,7 @@ onMounted(async () => {
   }
   candidates.push({
     source: 'bundled',
-    version: pkg.version,
+    version: await bundledVersion(base),
     js: `${base}wasm/horn_wasm.js`,
     wasm: `${base}wasm/horn_wasm_bg.wasm`,
   })
@@ -157,7 +170,7 @@ function handleFiles(files: FileList | File[]) {
         if (warnings > 0) parts.push(`${warnings} warning${warnings !== 1 ? 's' : ''}`)
         const review = results.reduce((sum, r) => sum + countNeedsReview(r.results), 0)
         if (errors === 0 && warnings === 0) parts.push('No automated checks failed')
-        if (review > 0) parts.push(`${review} condition${review !== 1 ? 's' : ''} need manual review`)
+        if (review > 0) parts.push(`${review} condition${review !== 1 ? 's' : ''} need${review === 1 ? 's' : ''} manual review`)
 
         liveAnnouncement.value = ''
         requestAnimationFrame(() => {
@@ -304,7 +317,9 @@ const totalReview = computed(() =>
             <span class="count-error" v-if="totalErrors > 0">{{ totalErrors }} error{{ totalErrors !== 1 ? 's' : '' }}</span>
             <span class="count-warning" v-if="totalWarnings > 0">{{ totalWarnings }} warning{{ totalWarnings !== 1 ? 's' : '' }}</span>
             <span class="count-pass" v-if="totalErrors === 0 && totalWarnings === 0">No automated checks failed</span>
-            <span class="count-review" v-if="totalReview > 0">{{ totalReview }} manual review</span>
+            <span class="count-review" v-if="totalReview > 0">
+              {{ totalReview }} need{{ totalReview === 1 ? 's' : '' }} manual review
+            </span>
           </span>
           <button class="clear-btn" @click="clearResults" type="button">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
