@@ -284,7 +284,7 @@ const totalReview = computed(() =>
           </label>
           <p id="drop-note" class="drop-note">Files are validated locally in your browser. Nothing is uploaded.</p>
           <p class="drop-version">
-            Horn v{{ engineVersion }} · WebAssembly build · PDF/UA-1 (Matterhorn Protocol 1.1)
+            Horn v{{ engineVersion }} · WebAssembly build · PDF/UA-1 (Matterhorn Protocol 1.1) and PDF/UA-2
             <template v-if="engineSource === 'npm'"> · latest release from npm</template>
             <template v-else> · build bundled with this site</template>
           </p>
