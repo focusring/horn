@@ -2,7 +2,15 @@
 import { ref, onMounted, computed } from 'vue'
 import pkg from '../../package.json'
 
-const hornVersion = pkg.version
+// The demo always runs the newest released engine: the version is resolved
+// from the npm registry at page load and the files come from jsDelivr, so a
+// new release is picked up without rebuilding the docs. The build bundled by
+// docs/scripts/sync-wasm.mjs (public/wasm) is the offline fallback.
+const NPM_PACKAGE = '@focusring/horn-wasm'
+const CDN = `https://cdn.jsdelivr.net/npm/${NPM_PACKAGE}`
+
+const engineVersion = ref(pkg.version)
+const engineSource = ref<'npm' | 'bundled'>('bundled')
 
 interface CheckResult {
   rule_id: string
@@ -33,28 +41,74 @@ const liveAnnouncement = ref('')
 
 let validateFn: (name: string, data: Uint8Array) => FileReport
 
-onMounted(async () => {
+interface EngineSource {
+  source: 'npm' | 'bundled'
+  version: string
+  js: string
+  wasm: string
+}
+
+async function latestNpmVersion(): Promise<string | null> {
   try {
-    const base = import.meta.env.BASE_URL || '/'
-    const wasmJsUrl = `${base}wasm/horn_wasm.js`
-    const wasmBinUrl = `${base}wasm/horn_wasm_bg.wasm`
-
-    // Fetch the JS glue code as text and load it as a blob URL module.
-    // Files in /public cannot be imported directly by Vite, so we bypass
-    // the dev server's transform pipeline this way.
-    const src = await (await fetch(wasmJsUrl)).text()
-    const blob = new Blob([src], { type: 'text/javascript' })
-    const blobUrl = URL.createObjectURL(blob)
-
-    const mod = await import(/* @vite-ignore */ blobUrl)
-    URL.revokeObjectURL(blobUrl)
-
-    await mod.default({ module_or_path: wasmBinUrl })
-    validateFn = mod.validate
-    wasmReady.value = true
-  } catch (e) {
-    error.value = `Failed to load WASM module: ${e}`
+    const res = await fetch(`https://registry.npmjs.org/${NPM_PACKAGE}/latest`, { cache: 'no-store' })
+    if (!res.ok) return null
+    const { version } = await res.json()
+    return typeof version === 'string' && /^\d+\.\d+\.\d+/.test(version) ? version : null
+  } catch {
+    return null
   }
+}
+
+async function loadEngine(src: EngineSource) {
+  // Fetch the JS glue code as text and load it as a blob URL module.
+  // Files in /public cannot be imported directly by Vite, and the CDN copy
+  // must not go through the dev server's transform pipeline either.
+  const res = await fetch(src.js)
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${src.js}`)
+  const blob = new Blob([await res.text()], { type: 'text/javascript' })
+  const blobUrl = URL.createObjectURL(blob)
+  try {
+    const mod = await import(/* @vite-ignore */ blobUrl)
+    await mod.default({ module_or_path: src.wasm })
+    return mod.validate as typeof validateFn
+  } finally {
+    URL.revokeObjectURL(blobUrl)
+  }
+}
+
+onMounted(async () => {
+  const base = import.meta.env.BASE_URL || '/'
+  const candidates: EngineSource[] = []
+
+  const latest = await latestNpmVersion()
+  if (latest) {
+    candidates.push({
+      source: 'npm',
+      version: latest,
+      js: `${CDN}@${latest}/horn_wasm.js`,
+      wasm: `${CDN}@${latest}/horn_wasm_bg.wasm`,
+    })
+  }
+  candidates.push({
+    source: 'bundled',
+    version: pkg.version,
+    js: `${base}wasm/horn_wasm.js`,
+    wasm: `${base}wasm/horn_wasm_bg.wasm`,
+  })
+
+  const failures: string[] = []
+  for (const candidate of candidates) {
+    try {
+      validateFn = await loadEngine(candidate)
+      engineVersion.value = candidate.version
+      engineSource.value = candidate.source
+      wasmReady.value = true
+      return
+    } catch (e) {
+      failures.push(`${candidate.source} ${candidate.version}: ${e}`)
+    }
+  }
+  error.value = `Failed to load the Horn WASM engine (${failures.join('; ')})`
 })
 
 function handleFiles(files: FileList | File[]) {
@@ -229,7 +283,11 @@ const totalReview = computed(() =>
             />
           </label>
           <p id="drop-note" class="drop-note">Files are validated locally in your browser. Nothing is uploaded.</p>
-          <p class="drop-version">Horn v{{ hornVersion }} · WebAssembly build · PDF/UA-1 (Matterhorn Protocol 1.1)</p>
+          <p class="drop-version">
+            Horn v{{ engineVersion }} · WebAssembly build · PDF/UA-1 (Matterhorn Protocol 1.1)
+            <template v-if="engineSource === 'npm'"> · latest release from npm</template>
+            <template v-else> · build bundled with this site</template>
+          </p>
         </div>
       </div>
 
