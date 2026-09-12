@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
 
 permissions:
   contents: write
@@ -12,8 +12,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # ── The tag must match the version recorded in the workspace ──
+  verify-version:
+    name: Verify version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Tag matches Cargo, Tauri, docs and GUI versions
+        run: scripts/check-version.sh "${GITHUB_REF_NAME#v}"
+
   # ── Run CI checks first ──
   check:
+    needs: verify-version
     uses: ./.github/workflows/ci.yml
 
   # ── CLI Binaries ──
@@ -116,8 +129,13 @@ jobs:
 
       - name: Publish to npm
         run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          if npm view "@focusring/horn-wasm@$VERSION" version >/dev/null 2>&1; then
+            echo "@focusring/horn-wasm@$VERSION is already on npm, skipping publish"
+            exit 0
+          fi
           echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > horn-wasm/pkg/.npmrc
-          cd horn-wasm/pkg && npm publish --access public || echo "Publish failed (version may already exist)"
+          cd horn-wasm/pkg && npm publish --access public
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -174,7 +192,7 @@ jobs:
         with:
           name: desktop-${{ matrix.platform }}
           path: desktop-out/*
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # ── Create GitHub Release with all artifacts ──
   publish:
@@ -201,6 +219,19 @@ jobs:
           cp artifacts/horn-wasm-pkg/*.tgz release/ 2>/dev/null || true
           ls -la release/
 
+      - name: Check that every documented asset is present
+        run: |
+          missing=0
+          for pattern in \
+            horn-linux-x86_64 horn-linux-aarch64 horn-macos-x86_64 horn-macos-aarch64 horn-windows-x86_64.exe \
+            '*.dmg' '*.app.tar.gz' '*.deb' '*.AppImage' '*.msi' '*.tgz'; do
+            if ! compgen -G "release/$pattern" >/dev/null; then
+              echo "::error::missing release asset: $pattern"
+              missing=1
+            fi
+          done
+          exit $missing
+
       - uses: softprops/action-gh-release@v2
         with:
           files: release/*
@@ -211,5 +242,35 @@ jobs:
             **CLI**: Download a binary below, or `cargo install --git https://github.com/focusring/horn.git`
             **Desktop**: Download the installer for your platform below
             **npm (WASM)**: `npm install @focusring/horn-wasm`
-            **GitHub Action**: `uses: focusring/horn@v1`
+            **GitHub Action**: `uses: focusring/horn@v0` (or pin `focusring/horn@${{ github.ref_name }}`)
             **Docs**: https://horn.focusring.nl/
+
+  # ── Move the major tag (v0, v1, ...) so `uses: focusring/horn@v0` tracks the latest release ──
+  major-tag:
+    name: Update major tag
+    needs: publish
+    runs-on: ubuntu-latest
+    # One tag move at a time, so a re-run of an old release cannot race a newer one.
+    concurrency:
+      group: major-tag
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Move the major tag, unless a newer release of this major already exists
+        run: |
+          MAJOR=${GITHUB_REF_NAME%%.*}
+          case "$GITHUB_REF_NAME" in
+            *-*) echo "$GITHUB_REF_NAME is a pre-release; leaving $MAJOR untouched"; exit 0 ;;
+          esac
+          git fetch --tags --force --quiet origin
+          NEWEST=$(git tag -l "$MAJOR.[0-9]*.[0-9]*" | grep -v -- '-' | sort -V | tail -n1)
+          if [ "$NEWEST" != "$GITHUB_REF_NAME" ]; then
+            echo "$NEWEST is newer than $GITHUB_REF_NAME; leaving $MAJOR where it is"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$MAJOR" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$MAJOR"
+          echo "$MAJOR -> $GITHUB_SHA ($GITHUB_REF_NAME)"

@@ -5,7 +5,7 @@ Horn provides a drop-in GitHub Action for validating PDFs in your CI pipeline.
 ## Usage
 
 ```yaml
-- uses: focusring/horn@v1
+- uses: focusring/horn@v0
   with:
     path: ./output/
 ```
@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: focusring/horn@v1
+      - uses: focusring/horn@v0
         with:
           path: ./docs/
 ```
@@ -52,7 +52,7 @@ jobs:
 ### With JUnit output
 
 ```yaml
-- uses: focusring/horn@v1
+- uses: focusring/horn@v0
   with:
     path: ./output/
     format: junit
@@ -61,9 +61,13 @@ jobs:
 
 ### Pinned version
 
+`focusring/horn@v0` is a moving tag that always points at the latest `0.x` release of the action. Pin both the action and the binary to an exact release when you need reproducible runs:
+
 ```yaml
-- uses: focusring/horn@v1
+- uses: focusring/horn@v0.3.0
   with:
     path: ./output/
-    version: '0.3.0'
+    version: 'v0.3.0'
 ```
+
+The `version` input accepts either `v0.3.0` or `0.3.0`.

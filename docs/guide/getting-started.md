@@ -78,7 +78,7 @@ See the [WebAssembly guide](/guide/wasm) for API details and usage examples.
 Add PDF accessibility checks to your CI pipeline:
 
 ```yaml
-- uses: focusring/horn@v1
+- uses: focusring/horn@v0
   with:
     path: ./output/
 ```
