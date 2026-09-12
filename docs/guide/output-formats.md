@@ -43,7 +43,7 @@ horn validate document.pdf --format json
   "files": [
     {
       "path": "document.pdf",
-      "standard": "pdf-ua-1",
+      "standard": "ua1",
       "results": [
         {
           "rule_id": "11-001",
@@ -65,12 +65,13 @@ horn validate document.pdf --format json
             "reason": "Tables are present: verify every row header cell is tagged as <TH>"
           }
         }
-      ],
-      "error": null
+      ]
     }
   ]
 }
 ```
+
+`standard` is `ua1`, `ua2` or `unknown` (from the file's `pdfuaid:part`). `outcome.status` is `Pass`, `Fail`, `NeedsReview` (a Matterhorn condition that needs human judgment) or `NotApplicable`. An `error` field is present only when the file could not be parsed.
 
 Best for: programmatic processing, custom dashboards, integration with other tools.
 

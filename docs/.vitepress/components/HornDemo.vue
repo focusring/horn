@@ -1,5 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import pkg from '../../package.json'
+
+// The demo always runs the newest released engine: the version is resolved
+// from the npm registry at page load and the files come from jsDelivr, so a
+// new release is picked up without rebuilding the docs. The build bundled by
+// docs/scripts/sync-wasm.mjs (public/wasm) is the offline fallback.
+const NPM_PACKAGE = '@focusring/horn-wasm'
+const CDN = `https://cdn.jsdelivr.net/npm/${NPM_PACKAGE}`
+
+const engineVersion = ref(pkg.version)
+const engineSource = ref<'npm' | 'bundled'>('bundled')
 
 interface CheckResult {
   rule_id: string
@@ -30,28 +41,87 @@ const liveAnnouncement = ref('')
 
 let validateFn: (name: string, data: Uint8Array) => FileReport
 
-onMounted(async () => {
+interface EngineSource {
+  source: 'npm' | 'bundled'
+  version: string
+  js: string
+  wasm: string
+}
+
+async function latestNpmVersion(): Promise<string | null> {
   try {
-    const base = import.meta.env.BASE_URL || '/'
-    const wasmJsUrl = `${base}wasm/horn_wasm.js`
-    const wasmBinUrl = `${base}wasm/horn_wasm_bg.wasm`
-
-    // Fetch the JS glue code as text and load it as a blob URL module.
-    // Files in /public cannot be imported directly by Vite, so we bypass
-    // the dev server's transform pipeline this way.
-    const src = await (await fetch(wasmJsUrl)).text()
-    const blob = new Blob([src], { type: 'text/javascript' })
-    const blobUrl = URL.createObjectURL(blob)
-
-    const mod = await import(/* @vite-ignore */ blobUrl)
-    URL.revokeObjectURL(blobUrl)
-
-    await mod.default({ module_or_path: wasmBinUrl })
-    validateFn = mod.validate
-    wasmReady.value = true
-  } catch (e) {
-    error.value = `Failed to load WASM module: ${e}`
+    const res = await fetch(`https://registry.npmjs.org/${NPM_PACKAGE}/latest`, { cache: 'no-store' })
+    if (!res.ok) return null
+    const { version } = await res.json()
+    return typeof version === 'string' && /^\d+\.\d+\.\d+/.test(version) ? version : null
+  } catch {
+    return null
   }
+}
+
+async function bundledVersion(base: string): Promise<string> {
+  // Written by docs/scripts/sync-wasm.mjs next to the files it installed, so the
+  // label always names the build that is actually served, even when the script
+  // fell back to another release or to a local wasm-pack output.
+  try {
+    const res = await fetch(`${base}wasm/VERSION`, { cache: 'no-store' })
+    const text = res.ok ? (await res.text()).trim() : ''
+    return text || pkg.version
+  } catch {
+    return pkg.version
+  }
+}
+
+async function loadEngine(src: EngineSource) {
+  // Fetch the JS glue code as text and load it as a blob URL module.
+  // Files in /public cannot be imported directly by Vite, and the CDN copy
+  // must not go through the dev server's transform pipeline either.
+  const res = await fetch(src.js)
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${src.js}`)
+  const blob = new Blob([await res.text()], { type: 'text/javascript' })
+  const blobUrl = URL.createObjectURL(blob)
+  try {
+    const mod = await import(/* @vite-ignore */ blobUrl)
+    await mod.default({ module_or_path: src.wasm })
+    return mod.validate as typeof validateFn
+  } finally {
+    URL.revokeObjectURL(blobUrl)
+  }
+}
+
+onMounted(async () => {
+  const base = import.meta.env.BASE_URL || '/'
+  const candidates: EngineSource[] = []
+
+  const latest = await latestNpmVersion()
+  if (latest) {
+    candidates.push({
+      source: 'npm',
+      version: latest,
+      js: `${CDN}@${latest}/horn_wasm.js`,
+      wasm: `${CDN}@${latest}/horn_wasm_bg.wasm`,
+    })
+  }
+  candidates.push({
+    source: 'bundled',
+    version: await bundledVersion(base),
+    js: `${base}wasm/horn_wasm.js`,
+    wasm: `${base}wasm/horn_wasm_bg.wasm`,
+  })
+
+  const failures: string[] = []
+  for (const candidate of candidates) {
+    try {
+      validateFn = await loadEngine(candidate)
+      engineVersion.value = candidate.version
+      engineSource.value = candidate.source
+      wasmReady.value = true
+      return
+    } catch (e) {
+      failures.push(`${candidate.source} ${candidate.version}: ${e}`)
+    }
+  }
+  error.value = `Failed to load the Horn WASM engine (${failures.join('; ')})`
 })
 
 function handleFiles(files: FileList | File[]) {
@@ -98,7 +168,9 @@ function handleFiles(files: FileList | File[]) {
         const parts = [`Validated ${results.length} file${results.length !== 1 ? 's' : ''} in ${processingTime.value}ms.`]
         if (errors > 0) parts.push(`${errors} error${errors !== 1 ? 's' : ''}`)
         if (warnings > 0) parts.push(`${warnings} warning${warnings !== 1 ? 's' : ''}`)
-        if (errors === 0 && warnings === 0) parts.push('All checks passed')
+        const review = results.reduce((sum, r) => sum + countNeedsReview(r.results), 0)
+        if (errors === 0 && warnings === 0) parts.push('No automated checks failed')
+        if (review > 0) parts.push(`${review} condition${review !== 1 ? 's' : ''} need${review === 1 ? 's' : ''} manual review`)
 
         liveAnnouncement.value = ''
         requestAnimationFrame(() => {
@@ -161,11 +233,26 @@ function countBySeverity(results: CheckResult[], severity: string) {
   ).length
 }
 
+function countNeedsReview(results: CheckResult[]) {
+  return results.filter((r) => r.outcome.status === 'NeedsReview').length
+}
+
+function failures(results: CheckResult[]) {
+  return results.filter((r) => r.outcome.status === 'Fail')
+}
+
+function reviewItems(results: CheckResult[]) {
+  return results.filter((r) => r.outcome.status === 'NeedsReview')
+}
+
 const totalErrors = computed(() =>
   reports.value.reduce((sum, r) => sum + countBySeverity(r.results, 'error'), 0),
 )
 const totalWarnings = computed(() =>
   reports.value.reduce((sum, r) => sum + countBySeverity(r.results, 'warning'), 0),
+)
+const totalReview = computed(() =>
+  reports.value.reduce((sum, r) => sum + countNeedsReview(r.results), 0),
 )
 </script>
 
@@ -209,6 +296,11 @@ const totalWarnings = computed(() =>
             />
           </label>
           <p id="drop-note" class="drop-note">Files are validated locally in your browser. Nothing is uploaded.</p>
+          <p class="drop-version">
+            Horn v{{ engineVersion }} · WebAssembly build · PDF/UA-1 (Matterhorn Protocol 1.1) and PDF/UA-2
+            <template v-if="engineSource === 'npm'"> · latest release from npm</template>
+            <template v-else> · build bundled with this site</template>
+          </p>
         </div>
       </div>
 
@@ -224,7 +316,10 @@ const totalWarnings = computed(() =>
           <span class="counts">
             <span class="count-error" v-if="totalErrors > 0">{{ totalErrors }} error{{ totalErrors !== 1 ? 's' : '' }}</span>
             <span class="count-warning" v-if="totalWarnings > 0">{{ totalWarnings }} warning{{ totalWarnings !== 1 ? 's' : '' }}</span>
-            <span class="count-pass" v-if="totalErrors === 0 && totalWarnings === 0">All checks passed</span>
+            <span class="count-pass" v-if="totalErrors === 0 && totalWarnings === 0">No automated checks failed</span>
+            <span class="count-review" v-if="totalReview > 0">
+              {{ totalReview }} need{{ totalReview === 1 ? 's' : '' }} manual review
+            </span>
           </span>
           <button class="clear-btn" @click="clearResults" type="button">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -256,7 +351,7 @@ const totalWarnings = computed(() =>
             {{ report.error }}
           </div>
 
-          <table v-if="report.results.length > 0" class="results-table">
+          <table v-if="failures(report.results).length > 0" class="results-table">
             <thead>
               <tr>
                 <th>Status</th>
@@ -266,7 +361,7 @@ const totalWarnings = computed(() =>
             </thead>
             <tbody>
               <tr
-                v-for="(result, i) in report.results.filter(r => r.outcome.status === 'Fail')"
+                v-for="(result, i) in failures(report.results)"
                 :key="i"
                 :class="`severity-${result.severity}`"
               >
@@ -285,9 +380,23 @@ const totalWarnings = computed(() =>
             </tbody>
           </table>
 
-          <p v-if="report.results.filter(r => r.outcome.status === 'Fail').length === 0 && !report.error" class="all-pass">
-            All checks passed.
+          <p v-if="failures(report.results).length === 0 && !report.error" class="all-pass">
+            No automated checks failed.
           </p>
+
+          <details v-if="reviewItems(report.results).length > 0" class="review-list">
+            <summary>
+              {{ reviewItems(report.results).length }} condition{{ reviewItems(report.results).length !== 1 ? 's' : '' }}
+              need manual review — the Matterhorn Protocol leaves these to a human
+            </summary>
+            <ul>
+              <li v-for="(item, i) in reviewItems(report.results)" :key="i">
+                <code>{{ item.rule_id }}</code>
+                <span class="review-desc">{{ item.description }}</span>
+                <span v-if="item.outcome.status === 'NeedsReview'" class="review-reason">{{ item.outcome.reason }}</span>
+              </li>
+            </ul>
+          </details>
         </details>
       </div>
     </template>
@@ -437,6 +546,58 @@ const totalWarnings = computed(() =>
 
 .count-pass {
   color: var(--vp-c-green-3);
+}
+
+.count-review {
+  color: var(--vp-c-text-2);
+}
+
+.drop-version {
+  color: var(--vp-c-text-3);
+  font-size: 0.75rem;
+  margin: 0.35rem 0 0;
+}
+
+.review-list {
+  border-top: 1px solid var(--vp-c-divider);
+  font-size: 0.85rem;
+}
+
+.review-list summary {
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  color: var(--vp-c-text-2);
+}
+
+.review-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 1rem 0.75rem;
+}
+
+.review-list li {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 0.15rem 0.75rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.review-list li code {
+  font-size: 0.8rem;
+  background: var(--vp-c-bg-soft);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  align-self: start;
+}
+
+.review-desc {
+  font-weight: 500;
+}
+
+.review-reason {
+  grid-column: 2;
+  color: var(--vp-c-text-2);
 }
 
 .file-report {

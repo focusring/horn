@@ -11,9 +11,11 @@ import HornDemo from './.vitepress/components/HornDemo.vue'
 
 # Live Demo
 
-Validate PDF files against PDF/UA-1 directly in your browser. Horn runs as WebAssembly — your files never leave your device.
+Validate PDF files against PDF/UA-1 or PDF/UA-2 directly in your browser — the standard is detected from each file's `pdfuaid:part`. Horn runs as WebAssembly — your files never leave your device.
 
-<p class="demo-note">This browser demo runs via WebAssembly which is significantly slower than the native CLI. For production use and accurate performance benchmarks, use <code>horn validate</code> on the command line — it processes ~660 PDFs/second with parallel execution.</p>
+Every check of the [Matterhorn Protocol 1.1](/reference/checks) runs: the 87 machine-checkable conditions are reported as pass or fail with their official Matterhorn index, and the 48 conditions that need human judgment are listed per file for manual review. PDF/UA-2 files additionally get the [ISO 14289-2 rules](/reference/checks#pdf-ua-2-iso-14289-2-rules) with interim `ua2:` ids. The demo always loads the [latest released engine](https://www.npmjs.com/package/@focusring/horn-wasm) from npm, so it matches the current CLI and desktop release; the version in use is shown below the file picker.
+
+<p class="demo-note">This browser demo runs via WebAssembly, which is single-threaded and noticeably slower than the native CLI. For production use and accurate performance numbers, use <code>horn validate</code> on the command line — it processes ~660 PDFs/second with parallel execution.</p>
 
 <HornDemo />
 
