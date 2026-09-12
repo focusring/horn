@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Tag matches Cargo, Tauri, docs and GUI versions
         run: scripts/check-version.sh "${GITHUB_REF_NAME#v}"
@@ -222,7 +224,7 @@ jobs:
           missing=0
           for pattern in \
             horn-linux-x86_64 horn-linux-aarch64 horn-macos-x86_64 horn-macos-aarch64 horn-windows-x86_64.exe \
-            '*.dmg' '*.deb' '*.AppImage' '*.msi' '*.tgz'; do
+            '*.dmg' '*.app.tar.gz' '*.deb' '*.AppImage' '*.msi' '*.tgz'; do
             if ! compgen -G "release/$pattern" >/dev/null; then
               echo "::error::missing release asset: $pattern"
               missing=1
@@ -248,14 +250,27 @@ jobs:
     name: Update major tag
     needs: publish
     runs-on: ubuntu-latest
+    # One tag move at a time, so a re-run of an old release cannot race a newer one.
+    concurrency:
+      group: major-tag
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
 
-      - name: Force-move the major tag to this release
+      - name: Move the major tag, unless a newer release of this major already exists
         run: |
           MAJOR=${GITHUB_REF_NAME%%.*}
+          case "$GITHUB_REF_NAME" in
+            *-*) echo "$GITHUB_REF_NAME is a pre-release; leaving $MAJOR untouched"; exit 0 ;;
+          esac
+          git fetch --tags --force --quiet origin
+          NEWEST=$(git tag -l "$MAJOR.[0-9]*.[0-9]*" | grep -v -- '-' | sort -V | tail -n1)
+          if [ "$NEWEST" != "$GITHUB_REF_NAME" ]; then
+            echo "$NEWEST is newer than $GITHUB_REF_NAME; leaving $MAJOR where it is"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -f "$MAJOR" "$GITHUB_SHA"
           git push -f origin "refs/tags/$MAJOR"
-          echo "$MAJOR -> $GITHUB_SHA"
+          echo "$MAJOR -> $GITHUB_SHA ($GITHUB_REF_NAME)"
