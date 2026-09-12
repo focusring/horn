@@ -220,7 +220,7 @@ impl<'a> Checker<'a> {
                             None,
                         ));
                     }
-                } else if !a.get(b"D").ok().is_some_and(|d| self.is_struct_dest(d)) {
+                } else if !a.get(b"D").is_ok_and(|d| self.is_struct_dest(d)) {
                     self.results.push(fail(
                         "ua2:8.8-2",
                         format!("{label}: GoTo action has no structure destination (/SD)"),
@@ -261,8 +261,7 @@ impl<'a> Checker<'a> {
             Object::Dictionary(d) => d
                 .get(b"SD")
                 .or_else(|_| d.get(b"D"))
-                .ok()
-                .is_some_and(|inner| self.is_struct_dest_depth(inner, depth + 1)),
+                .is_ok_and(|inner| self.is_struct_dest_depth(inner, depth + 1)),
             Object::Name(name) => self
                 .names
                 .lookup(name)
