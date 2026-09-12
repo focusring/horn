@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vitepress dev",
-    "build": "vitepress build",
+    "sync-wasm": "node scripts/sync-wasm.mjs",
+    "dev": "node scripts/sync-wasm.mjs && vitepress dev",
+    "build": "node scripts/sync-wasm.mjs && vitepress build",
     "preview": "vitepress preview"
   },
   "dependencies": {

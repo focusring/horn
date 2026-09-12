@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import pkg from '../../package.json'
+
+const hornVersion = pkg.version
 
 interface CheckResult {
   rule_id: string
@@ -98,7 +101,9 @@ function handleFiles(files: FileList | File[]) {
         const parts = [`Validated ${results.length} file${results.length !== 1 ? 's' : ''} in ${processingTime.value}ms.`]
         if (errors > 0) parts.push(`${errors} error${errors !== 1 ? 's' : ''}`)
         if (warnings > 0) parts.push(`${warnings} warning${warnings !== 1 ? 's' : ''}`)
-        if (errors === 0 && warnings === 0) parts.push('All checks passed')
+        const review = results.reduce((sum, r) => sum + countNeedsReview(r.results), 0)
+        if (errors === 0 && warnings === 0) parts.push('No automated checks failed')
+        if (review > 0) parts.push(`${review} condition${review !== 1 ? 's' : ''} need manual review`)
 
         liveAnnouncement.value = ''
         requestAnimationFrame(() => {
@@ -161,11 +166,26 @@ function countBySeverity(results: CheckResult[], severity: string) {
   ).length
 }
 
+function countNeedsReview(results: CheckResult[]) {
+  return results.filter((r) => r.outcome.status === 'NeedsReview').length
+}
+
+function failures(results: CheckResult[]) {
+  return results.filter((r) => r.outcome.status === 'Fail')
+}
+
+function reviewItems(results: CheckResult[]) {
+  return results.filter((r) => r.outcome.status === 'NeedsReview')
+}
+
 const totalErrors = computed(() =>
   reports.value.reduce((sum, r) => sum + countBySeverity(r.results, 'error'), 0),
 )
 const totalWarnings = computed(() =>
   reports.value.reduce((sum, r) => sum + countBySeverity(r.results, 'warning'), 0),
+)
+const totalReview = computed(() =>
+  reports.value.reduce((sum, r) => sum + countNeedsReview(r.results), 0),
 )
 </script>
 
@@ -209,6 +229,7 @@ const totalWarnings = computed(() =>
             />
           </label>
           <p id="drop-note" class="drop-note">Files are validated locally in your browser. Nothing is uploaded.</p>
+          <p class="drop-version">Horn v{{ hornVersion }} · WebAssembly build · PDF/UA-1 (Matterhorn Protocol 1.1)</p>
         </div>
       </div>
 
@@ -224,7 +245,8 @@ const totalWarnings = computed(() =>
           <span class="counts">
             <span class="count-error" v-if="totalErrors > 0">{{ totalErrors }} error{{ totalErrors !== 1 ? 's' : '' }}</span>
             <span class="count-warning" v-if="totalWarnings > 0">{{ totalWarnings }} warning{{ totalWarnings !== 1 ? 's' : '' }}</span>
-            <span class="count-pass" v-if="totalErrors === 0 && totalWarnings === 0">All checks passed</span>
+            <span class="count-pass" v-if="totalErrors === 0 && totalWarnings === 0">No automated checks failed</span>
+            <span class="count-review" v-if="totalReview > 0">{{ totalReview }} manual review</span>
           </span>
           <button class="clear-btn" @click="clearResults" type="button">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -256,7 +278,7 @@ const totalWarnings = computed(() =>
             {{ report.error }}
           </div>
 
-          <table v-if="report.results.length > 0" class="results-table">
+          <table v-if="failures(report.results).length > 0" class="results-table">
             <thead>
               <tr>
                 <th>Status</th>
@@ -266,7 +288,7 @@ const totalWarnings = computed(() =>
             </thead>
             <tbody>
               <tr
-                v-for="(result, i) in report.results.filter(r => r.outcome.status === 'Fail')"
+                v-for="(result, i) in failures(report.results)"
                 :key="i"
                 :class="`severity-${result.severity}`"
               >
@@ -285,9 +307,23 @@ const totalWarnings = computed(() =>
             </tbody>
           </table>
 
-          <p v-if="report.results.filter(r => r.outcome.status === 'Fail').length === 0 && !report.error" class="all-pass">
-            All checks passed.
+          <p v-if="failures(report.results).length === 0 && !report.error" class="all-pass">
+            No automated checks failed.
           </p>
+
+          <details v-if="reviewItems(report.results).length > 0" class="review-list">
+            <summary>
+              {{ reviewItems(report.results).length }} condition{{ reviewItems(report.results).length !== 1 ? 's' : '' }}
+              need manual review — the Matterhorn Protocol leaves these to a human
+            </summary>
+            <ul>
+              <li v-for="(item, i) in reviewItems(report.results)" :key="i">
+                <code>{{ item.rule_id }}</code>
+                <span class="review-desc">{{ item.description }}</span>
+                <span v-if="item.outcome.status === 'NeedsReview'" class="review-reason">{{ item.outcome.reason }}</span>
+              </li>
+            </ul>
+          </details>
         </details>
       </div>
     </template>
@@ -437,6 +473,58 @@ const totalWarnings = computed(() =>
 
 .count-pass {
   color: var(--vp-c-green-3);
+}
+
+.count-review {
+  color: var(--vp-c-text-2);
+}
+
+.drop-version {
+  color: var(--vp-c-text-3);
+  font-size: 0.75rem;
+  margin: 0.35rem 0 0;
+}
+
+.review-list {
+  border-top: 1px solid var(--vp-c-divider);
+  font-size: 0.85rem;
+}
+
+.review-list summary {
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  color: var(--vp-c-text-2);
+}
+
+.review-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 1rem 0.75rem;
+}
+
+.review-list li {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 0.15rem 0.75rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.review-list li code {
+  font-size: 0.8rem;
+  background: var(--vp-c-bg-soft);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  align-self: start;
+}
+
+.review-desc {
+  font-weight: 500;
+}
+
+.review-reason {
+  grid-column: 2;
+  color: var(--vp-c-text-2);
 }
 
 .file-report {

@@ -2,3 +2,6 @@
 horn-desktop/src-tauri/target/
 horn-desktop/src-tauri/gen/
 horn-wasm/pkg/
+
+# Fetched at docs build time by docs/scripts/sync-wasm.mjs
+docs/public/wasm/

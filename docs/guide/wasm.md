@@ -64,10 +64,9 @@ function validate(name: string, data: Uint8Array): FileReport
     console.log(report)
     // {
     //   path: "report.pdf",
-    //   standard: "pdf-ua-1",
-    //   results: [...],
-    //   error: null
-    // }
+    //   standard: "ua1",      // "ua1", "ua2" or "unknown"
+    //   results: [...],      // outcome.status: "Pass" | "Fail" | "NeedsReview" | "NotApplicable"
+    // }                      // "error" is present only when the file could not be parsed
   })
 </script>
 ```
@@ -91,7 +90,7 @@ The `validate` function returns the same `FileReport` structure as the CLI's JSO
 ```json
 {
   "path": "document.pdf",
-  "standard": "pdf-ua-1",
+  "standard": "ua1",
   "results": [
     {
       "rule_id": "11-001",
@@ -102,11 +101,22 @@ The `validate` function returns the same `FileReport` structure as the CLI's JSO
         "status": "Fail",
         "message": "Document catalog missing /Lang entry"
       }
+    },
+    {
+      "rule_id": "01-001",
+      "checkpoint": 1,
+      "description": "Artifact is tagged as real content.",
+      "severity": "info",
+      "outcome": {
+        "status": "NeedsReview",
+        "reason": "Verify that artifacts (page furniture, decoration) are not tagged as real content and that no real content is marked as an artifact"
+      }
     }
-  ],
-  "error": null
+  ]
 }
 ```
+
+`NeedsReview` results are the Matterhorn conditions that need human judgment; the demo on this site lists them separately from failures. `error` is only present when the file could not be parsed.
 
 ## Performance notes
 
