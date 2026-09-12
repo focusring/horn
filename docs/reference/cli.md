@@ -4,7 +4,7 @@
 
 ### `horn validate`
 
-Validate PDF files against PDF/UA-1.
+Validate PDF files against PDF/UA-1 or PDF/UA-2 (auto-detected from `pdfuaid:part`).
 
 ```bash
 horn validate <FILES...> [OPTIONS]

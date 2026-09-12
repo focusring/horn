@@ -20,7 +20,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Validate PDF files against PDF/UA-1
+    /// Validate PDF files against PDF/UA-1 or PDF/UA-2 (auto-detected from pdfuaid:part)
     Validate {
         /// PDF files or directories to validate
         #[arg(required = true)]
@@ -215,6 +215,7 @@ fn write_output(
 }
 
 /// Print the Matterhorn Protocol coverage table.
+#[allow(clippy::too_many_lines)]
 fn print_coverage(json: bool) -> Result<()> {
     let registry = horn::checks::CheckRegistry::new();
     let implemented = registry.implemented_rules();
@@ -254,6 +255,11 @@ fn print_coverage(json: bool) -> Result<()> {
         .copied()
         .filter(|id| horn::matterhorn::is_extension_rule(id))
         .collect();
+    let ua2_rows: Vec<(&horn::pdfua2::Rule, bool)> = horn::pdfua2::RULES
+        .iter()
+        .map(|r| (r, covered(r.id)))
+        .collect();
+    let ua2_covered = ua2_rows.iter().filter(|(_, c)| *c).count();
 
     if json {
         let conditions: Vec<serde_json::Value> = rows
@@ -276,6 +282,21 @@ fn print_coverage(json: bool) -> Result<()> {
             "human_judgment": { "total": human_total, "covered": human_covered },
             "extension_rules": extensions,
             "conditions": conditions,
+            "pdfua2": {
+                "standard": "ISO 14289-2:2024",
+                "note": "Interim ids (ua2:<clause>-<test>) until the Matterhorn Protocol 2.0 is published",
+                "rules": { "total": ua2_rows.len(), "covered": ua2_covered },
+                "conditions": ua2_rows
+                    .iter()
+                    .map(|(r, c)| serde_json::json!({
+                        "id": r.id,
+                        "clause": r.clause,
+                        "checkpoint": r.checkpoint,
+                        "status": if *c { "machine" } else { "missing" },
+                        "description": r.description,
+                    }))
+                    .collect::<Vec<_>>(),
+            },
         });
         println!("{}", serde_json::to_string_pretty(&out)?);
         return Ok(());
@@ -303,5 +324,22 @@ fn print_coverage(json: bool) -> Result<()> {
         extensions.len(),
         extensions.join(", ")
     );
+
+    print_pdfua2_coverage(&ua2_rows, ua2_covered);
     Ok(())
+}
+
+/// Print the PDF/UA-2 (ISO 14289-2) section of the coverage table.
+fn print_pdfua2_coverage(rows: &[(&horn::pdfua2::Rule, bool)], covered: usize) {
+    println!(
+        "\nPDF/UA-2 (ISO 14289-2:2024) — rules beyond PDF/UA-1, interim ids until Matterhorn 2.0 is published"
+    );
+    for (r, is_covered) in rows {
+        let status = if *is_covered { "machine" } else { "missing" };
+        println!(
+            "  {:<18} {status:<8} {}  [clause {}]",
+            r.id, r.description, r.clause
+        );
+    }
+    println!("PDF/UA-2 rules: {covered}/{} implemented.", rows.len());
 }

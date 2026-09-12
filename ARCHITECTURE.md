@@ -9,7 +9,7 @@ Horn is a PDF/UA accessibility checker based on the Matterhorn Protocol. It ship
 │                      horn (core library)                     │
 │  validate_bytes() / validate_file() → FileReport             │
 │  ┌──────────┐  ┌──────────┐  ┌───────────────────────────┐  │
-│  │ pdf_oxide│  │  lopdf   │  │ CheckRegistry (25 checks) │  │
+│  │ pdf_oxide│  │  lopdf   │  │ CheckRegistry (29 checks) │  │
 │  │  (fast)  │  │  (lazy)  │  │ Matterhorn Protocol       │  │
 │  └──────────┘  └──────────┘  └───────────────────────────┘  │
 └──────────┬──────────────┬──────────────────┬────────────────┘
@@ -74,7 +74,7 @@ pub struct HornDocument {
 
 ### Check System
 
-25 checks implementing the `Check` trait, registered in `CheckRegistry`:
+29 checks implementing the `Check` trait, registered in `CheckRegistry`:
 
 ```rust
 pub trait Check: Send + Sync {
@@ -146,7 +146,7 @@ Files/directories (clap)
   → collect_pdf_paths() [walkdir if --recurse]
   → validate_files_parallel() [rayon par_iter]
     → HornDocument::open(path)      # eager, both parsers
-    → CheckRegistry::run_all()      # 25 checks
+    → CheckRegistry::run_all()      # 29 checks
     → FileReport
   → output::write_report()          # text/json/sarif/junit
   → stdout or file
@@ -211,7 +211,7 @@ User clicks "Choose & Validate PDFs"
 | Desktop (Tauri, release) | ~0.4s | ~0.07s | Same — direct Rust call |
 | Web (WASM) | ~3s | ~0.07s | zlib decompression slow in WASM |
 
-The WASM bottleneck is `lopdf`'s eager stream decompression running in single-threaded WASM without SIMD. The lazy lopdf optimization helps by deferring this cost, but it's still triggered when lopdf-dependent checks run (23 of 25 checks).
+The WASM bottleneck is `lopdf`'s eager stream decompression running in single-threaded WASM without SIMD. The lazy lopdf optimization helps by deferring this cost, but it's still triggered when lopdf-dependent checks run (27 of 29 checks).
 
 ## File Structure
 
@@ -224,6 +224,7 @@ The WASM bottleneck is `lopdf`'s eager stream decompression running in single-th
 │   ├── document.rs                 # HornDocument (dual parser, lazy lopdf, cached content usage)
 │   ├── model.rs                    # Standard, Severity, CheckResult, FileReport
 │   ├── matterhorn.rs               # Matterhorn 1.1 condition catalogue
+│   ├── pdfua2.rs                   # PDF/UA-2 (ISO 14289-2) rule catalogue (interim ua2: ids)
 │   ├── content/                    # Content-stream font usage + CMap parsers
 │   ├── fontprog/                   # TrueType / CFF / Type 1 font program parsers, AGL, encodings
 │   ├── checks/
@@ -232,6 +233,8 @@ The WASM bottleneck is `lopdf`'s eager stream decompression running in single-th
 │   │   ├── fonts.rs                # Font dictionaries: embedding, CMaps, encodings
 │   │   ├── font_program.rs         # Font programs: glyphs, CharSet/CIDSet, widths, cmaps, ToUnicode
 │   │   ├── human_review.rs         # Manual-review items for human-judgment conditions
+│   │   ├── namespaces.rs           # PDF 2.0 structure namespaces (/NS, /RoleMapNS) resolution
+│   │   ├── ua2/                    # PDF/UA-2-only checks: identification, structure, annotations, destinations
 │   │   ├── tables.rs               # Table structure (TH/TD/Headers/Scope/grid)
 │   │   ├── ... (19 more)
 │   │   └── xobjects.rs             # Form XObject paint counts

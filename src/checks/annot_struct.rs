@@ -1,6 +1,7 @@
 use crate::checks::Check;
+use crate::checks::namespaces;
 use crate::document::HornDocument;
-use crate::model::{CheckOutcome, CheckResult, Location, Severity};
+use crate::model::{CheckOutcome, CheckResult, Location, Severity, Standard};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -9,11 +10,27 @@ use std::collections::HashMap;
 struct ObjrInfo {
     /// The struct elem type (/S) of the parent element containing this OBJR
     parent_type: Vec<u8>,
+    /// The parent's type after role mapping (document `/RoleMap` and PDF 2.0 `/RoleMapNS`)
+    parent_std_type: Vec<u8>,
     /// Whether the parent struct elem has a non-empty /Alt
     parent_has_alt: bool,
+    /// Whether the parent struct elem has content of its own (marked content or child elements)
+    parent_has_content: bool,
     /// Whether the parent struct elem has a non-empty /TU (for Form fields)
     #[allow(dead_code)]
     parent_has_tu: bool,
+}
+
+/// Facts about the structure element enclosing an OBJR, passed down the walk.
+#[derive(Clone, Default)]
+struct ParentCtx {
+    /// The struct elem type (/S) as written
+    type_name: Vec<u8>,
+    /// The type after role mapping (document `/RoleMap` and PDF 2.0 `/RoleMapNS`)
+    std_type: Vec<u8>,
+    has_alt: bool,
+    has_content: bool,
+    has_tu: bool,
 }
 
 /// Annotation-to-structure tree cross-reference validation.
@@ -47,13 +64,11 @@ impl Check for AnnotStructChecks {
     #[allow(clippy::too_many_lines)]
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>> {
         let mut results = Vec::new();
+        let standard = doc.standard();
         let Ok(catalog) = doc.raw_catalog() else {
             return Ok(results);
         };
         let lopdf_doc = doc.lopdf();
-
-        // Get the role map for resolving custom types
-        let role_map = get_role_map(catalog, lopdf_doc);
 
         // Step 1: Walk the structure tree, collecting OBJR entries with parent info
         let struct_tree = match catalog.get(b"StructTreeRoot") {
@@ -70,8 +85,11 @@ impl Check for AnnotStructChecks {
             return Ok(results);
         };
 
+        // Role maps (document /RoleMap and PDF 2.0 /RoleMapNS) resolve custom parent types
+        let role_map = namespaces::role_map(lopdf_doc, tree);
         let mut objr_map: HashMap<lopdf::ObjectId, ObjrInfo> = HashMap::new();
-        collect_objr_with_info(lopdf_doc, tree, b"", false, false, &mut objr_map, 0);
+        let root_ctx = ParentCtx::default();
+        collect_objr_with_info(lopdf_doc, tree, &root_ctx, role_map, &mut objr_map, 0);
 
         // Step 2: Process all annotations from all pages
         let pages = lopdf_doc.get_pages();
@@ -179,7 +197,7 @@ impl Check for AnnotStructChecks {
                         annot_dict,
                         subtype,
                         info,
-                        &role_map,
+                        standard,
                         *page_num,
                         &mut results,
                     );
@@ -190,7 +208,7 @@ impl Check for AnnotStructChecks {
                         annot_dict,
                         subtype,
                         info,
-                        &role_map,
+                        standard,
                         *page_num,
                         &mut results,
                     );
@@ -251,9 +269,8 @@ impl Check for AnnotStructChecks {
 fn collect_objr_with_info(
     doc: &lopdf::Document,
     dict: &lopdf::Dictionary,
-    parent_type: &[u8],
-    parent_has_alt: bool,
-    parent_has_tu: bool,
+    parent: &ParentCtx,
+    role_map: Option<&lopdf::Dictionary>,
     map: &mut HashMap<lopdf::ObjectId, ObjrInfo>,
     depth: usize,
 ) {
@@ -270,9 +287,11 @@ fn collect_objr_with_info(
                 map.insert(
                     ref_id,
                     ObjrInfo {
-                        parent_type: parent_type.to_vec(),
-                        parent_has_alt,
-                        parent_has_tu,
+                        parent_type: parent.type_name.clone(),
+                        parent_std_type: parent.std_type.clone(),
+                        parent_has_alt: parent.has_alt,
+                        parent_has_content: parent.has_content,
+                        parent_has_tu: parent.has_tu,
                     },
                 );
             }
@@ -280,35 +299,31 @@ fn collect_objr_with_info(
         return;
     }
 
-    // Determine this element's type and attributes for passing to children
-    let elem_type = dict
-        .get(b"S")
-        .ok()
-        .and_then(|o| o.as_name().ok())
-        .unwrap_or(b"");
-
-    let current_type = if elem_type.is_empty() {
-        parent_type
+    // Determine this element's type and attributes for passing to children.
+    // The structure tree root has no /S and passes its (empty) context through.
+    let current = if dict.get(b"S").is_ok() {
+        let qt = namespaces::resolve_qualified_type(doc, role_map, dict);
+        ParentCtx {
+            type_name: dict
+                .get(b"S")
+                .ok()
+                .and_then(|o| o.as_name().ok())
+                .unwrap_or(b"")
+                .to_vec(),
+            std_type: qt.name,
+            has_alt: has_nonempty_string(dict, b"Alt"),
+            has_content: element_has_content(doc, dict),
+            has_tu: has_nonempty_string(dict, b"TU"),
+        }
     } else {
-        elem_type
+        parent.clone()
     };
-
-    let has_alt = has_nonempty_string(dict, b"Alt");
-    let has_tu = has_nonempty_string(dict, b"TU");
 
     // Walk /K children
     let Ok(kids) = dict.get(b"K") else { return };
 
     let mut visit = |child_dict: &lopdf::Dictionary| {
-        collect_objr_with_info(
-            doc,
-            child_dict,
-            current_type,
-            has_alt,
-            has_tu,
-            map,
-            depth + 1,
-        );
+        collect_objr_with_info(doc, child_dict, &current, role_map, map, depth + 1);
     };
 
     match kids {
@@ -339,25 +354,59 @@ fn collect_objr_with_info(
     }
 }
 
+/// Marked content (MCID / MCR) or child structure elements directly inside an element.
+fn element_has_content(doc: &lopdf::Document, dict: &lopdf::Dictionary) -> bool {
+    let Ok(kids) = dict.get(b"K") else {
+        return false;
+    };
+    let items: Vec<&lopdf::Object> = match kids {
+        lopdf::Object::Array(arr) => arr.iter().collect(),
+        other => vec![other],
+    };
+    let is_content = |d: &lopdf::Dictionary| {
+        let ty = d.get(b"Type").ok().and_then(|o| o.as_name().ok());
+        ty == Some(b"MCR") || (ty != Some(b"OBJR") && d.get(b"S").is_ok())
+    };
+    items.iter().any(|kid| match kid {
+        lopdf::Object::Integer(_) => true,
+        lopdf::Object::Dictionary(d) => is_content(d),
+        lopdf::Object::Reference(id) => doc
+            .get_object(*id)
+            .ok()
+            .and_then(|o| o.as_dict().ok())
+            .is_some_and(is_content),
+        _ => false,
+    })
+}
+
 /// Check that the OBJR parent struct elem type matches the annotation subtype.
 fn check_objr_parent_type(
     _doc: &lopdf::Document,
     _annot_dict: &lopdf::Dictionary,
     subtype: &[u8],
     info: &ObjrInfo,
-    role_map: &HashMap<Vec<u8>, Vec<u8>>,
+    standard: Standard,
     page_num: u32,
     results: &mut Vec<CheckResult>,
 ) {
-    let resolved_type = resolve_role(&info.parent_type, role_map);
+    let resolved_type = info.parent_std_type.as_slice();
+
+    // PDF/UA-2: an annotation enclosed in an Artifact structure element is an
+    // artifact (ISO 14289-2, 8.9.2.2) and is exempt from the parent-type rules.
+    if standard == Standard::Ua2 && resolved_type == b"Artifact" {
+        return;
+    }
 
     let (expected, rule) = match subtype {
         b"Link" => (b"Link" as &[u8], "28-011"),
         b"Widget" => (b"Form" as &[u8], "28-010"),
         _ => (b"Annot" as &[u8], "28-002"),
     };
+    // PDF/UA-2 also allows links inside a Reference element (ISO 14289-2, 8.2.5.20)
+    let ua2_reference =
+        standard == Standard::Ua2 && subtype == b"Link" && resolved_type == b"Reference";
 
-    if resolved_type != expected {
+    if resolved_type != expected && !ua2_reference {
         let parent_str = String::from_utf8_lossy(&info.parent_type);
         let subtype_str = String::from_utf8_lossy(subtype);
         let expected_str = String::from_utf8_lossy(expected);
@@ -377,10 +426,15 @@ fn check_annot_accessible_text(
     annot_dict: &lopdf::Dictionary,
     subtype: &[u8],
     info: &ObjrInfo,
-    role_map: &HashMap<Vec<u8>, Vec<u8>>,
+    standard: Standard,
     page_num: u32,
     results: &mut Vec<CheckResult>,
 ) {
+    // PDF/UA-2: annotations enclosed in an Artifact element are artifacts
+    if standard == Standard::Ua2 && info.parent_std_type == b"Artifact" {
+        return;
+    }
+
     // Skip hidden annotations (F bit 2)
     if let Ok(flags) = annot_dict.get(b"F").and_then(lopdf::Object::as_i64) {
         if flags & 0x02 != 0 {
@@ -424,13 +478,18 @@ fn check_annot_accessible_text(
             }
         }
         b"Link" => {
-            // Links need /Contents on the annotation
+            // Links need /Contents on the annotation. PDF/UA-2 (ISO 14289-2,
+            // 8.2.5.20) takes the accessible text from the content of the
+            // enclosing Link/Reference element instead, so /Contents is only
+            // required when that element has no content or /Alt of its own.
             let has_contents = annot_dict
                 .get(b"Contents")
                 .ok()
                 .and_then(|o| o.as_str().ok())
                 .is_some_and(|s| !s.is_empty());
-            if !has_contents {
+            let ua2_text_in_structure =
+                standard == Standard::Ua2 && (info.parent_has_content || info.parent_has_alt);
+            if !has_contents && !ua2_text_in_structure {
                 results.push(annot_fail(
                     "28-012",
                     page_num,
@@ -443,7 +502,7 @@ fn check_annot_accessible_text(
             // Annotations under /Annot struct elems need accessible text:
             // either /Alt on the struct elem or /Contents on the annotation.
             // Skip if annotation is hidden or has no appearance stream.
-            let resolved = resolve_role(&info.parent_type, role_map);
+            let resolved = info.parent_std_type.as_slice();
             // Hidden (0x02), Invisible (0x01), NoView (0x20), or non-printing without Print flag (0x04)
             let annot_flags = annot_dict
                 .get(b"F")
@@ -847,47 +906,6 @@ fn has_inherited_flag_hidden(
         }
     }
     false
-}
-
-/// Resolve a custom role type through the role map to find the standard type.
-fn resolve_role(role: &[u8], role_map: &HashMap<Vec<u8>, Vec<u8>>) -> Vec<u8> {
-    let mut current = role.to_vec();
-    for _ in 0..20 {
-        if let Some(target) = role_map.get(&current) {
-            current = target.clone();
-        } else {
-            break;
-        }
-    }
-    current
-}
-
-/// Get the `RoleMap` from the structure tree root.
-fn get_role_map(catalog: &lopdf::Dictionary, doc: &lopdf::Document) -> HashMap<Vec<u8>, Vec<u8>> {
-    let mut map = HashMap::new();
-    let tree = catalog
-        .get(b"StructTreeRoot")
-        .ok()
-        .and_then(|o| o.as_reference().ok())
-        .and_then(|r| doc.get_object(r).ok())
-        .and_then(|o| o.as_dict().ok());
-
-    let Some(tree_dict) = tree else { return map };
-
-    let role_map = tree_dict
-        .get_deref(b"RoleMap", doc)
-        .ok()
-        .and_then(|o| o.as_dict().ok());
-
-    let Some(rm) = role_map else { return map };
-
-    for (key, val) in rm {
-        if let Ok(name) = val.as_name() {
-            map.insert(key.clone(), name.to_vec());
-        }
-    }
-
-    map
 }
 
 fn annot_fail(rule_id: &str, page_num: u32, message: &str, element: &str) -> CheckResult {

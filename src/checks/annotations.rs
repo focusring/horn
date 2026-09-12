@@ -1,6 +1,6 @@
 use crate::checks::Check;
 use crate::document::HornDocument;
-use crate::model::{CheckOutcome, CheckResult, Location, Severity};
+use crate::model::{CheckOutcome, CheckResult, Location, Severity, Standard};
 use anyhow::Result;
 
 /// Checkpoint 28: page-level annotation checks.
@@ -31,11 +31,12 @@ impl Check for AnnotationChecks {
 
     fn run(&self, doc: &mut HornDocument) -> Result<Vec<CheckResult>> {
         let mut results = Vec::new();
+        let standard = doc.standard();
         let lopdf_doc = doc.lopdf();
         let pages = lopdf_doc.get_pages();
 
         for (page_num, page_id) in &pages {
-            check_tab_order(lopdf_doc, *page_id, *page_num, &mut results);
+            check_tab_order(lopdf_doc, *page_id, *page_num, standard, &mut results);
             check_annotations_on_page(lopdf_doc, *page_id, *page_num, &mut results);
         }
 
@@ -48,6 +49,7 @@ fn check_tab_order(
     doc: &lopdf::Document,
     page_id: lopdf::ObjectId,
     page_num: u32,
+    standard: Standard,
     results: &mut Vec<CheckResult>,
 ) {
     let Ok(page) = doc.get_dictionary(page_id) else {
@@ -63,8 +65,12 @@ fn check_tab_order(
     match page.get_deref(b"Tabs", doc) {
         Ok(obj) => {
             let tabs = obj.as_name().unwrap_or(b"");
+            // PDF/UA-2 (ISO 14289-2, 8.9.3.3) also permits /A (annotation array
+            // order) and /W (widget order); PDF/UA-1 requires /S.
+            let accepted =
+                tabs == b"S" || (standard == Standard::Ua2 && matches!(tabs, b"A" | b"W"));
             {
-                if tabs == b"S" {
+                if accepted {
                     results.push(CheckResult {
                         rule_id: "28-009".to_string(),
                         checkpoint: 28,
@@ -83,7 +89,7 @@ fn check_tab_order(
                         severity: Severity::Error,
                         outcome: CheckOutcome::Fail {
                             message: format!(
-                                "Page {page_num}: Tab order is /{tab_val} — must be /S (structure order) for PDF/UA"
+                                "Page {page_num}: Tab order is /{tab_val} — must be /S (structure order); PDF/UA-2 also accepts /A or /W"
                             ),
                             location: Some(Location {
                                 page: Some(page_num),

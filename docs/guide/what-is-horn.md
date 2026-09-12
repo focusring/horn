@@ -1,6 +1,6 @@
 # What is Horn?
 
-Horn is an open-source PDF/UA accessibility checker based on the [Matterhorn Protocol 1.1](https://pdfa.org/resource/the-matterhorn-protocol/). It validates PDF files against PDF/UA-1 (ISO 14289-1), targeting the machine-checkable failure conditions defined in the protocol.
+Horn is an open-source PDF/UA accessibility checker based on the [Matterhorn Protocol 1.1](https://pdfa.org/resource/the-matterhorn-protocol/). It validates PDF files against PDF/UA-1 (ISO 14289-1) and PDF/UA-2 (ISO 14289-2), targeting the machine-checkable failure conditions defined in the protocol.
 
 Horn is designed as a cross-platform, CI/CD-ready alternative to [PAC 2024](https://pac.pdf-accessibility.org/).
 
@@ -24,7 +24,7 @@ This means simple PDFs are validated extremely quickly, while complex documents 
 
 ## Matterhorn Protocol
 
-The [Matterhorn Protocol](https://pdfa.org/resource/the-matterhorn-protocol/) defines 136 failure conditions across 31 checkpoints for PDF/UA-1. Horn covers every condition in the protocol's tables (137 index entries in version 1.1, which added 13-008): the 87 machine-checkable ones are automated, the 48 human-judgment ones are reported as manual-review items and the 2 without a defined test are reported as not applicable, with every finding carrying the official Matterhorn index. Its 25 check modules cover, among others:
+The [Matterhorn Protocol](https://pdfa.org/resource/the-matterhorn-protocol/) defines 136 failure conditions across 31 checkpoints for PDF/UA-1. Horn covers every condition in the protocol's tables (137 index entries in version 1.1, which added 13-008): the 87 machine-checkable ones are automated, the 48 human-judgment ones are reported as manual-review items and the 2 without a defined test are reported as not applicable, with every finding carrying the official Matterhorn index. Its 29 check modules cover, among others:
 
 - Document metadata and language
 - Structure tree and tagging
@@ -35,6 +35,8 @@ The [Matterhorn Protocol](https://pdfa.org/resource/the-matterhorn-protocol/) de
 - Annotation accessibility
 - List nesting
 - And more
+
+For PDF/UA-2 documents (`pdfuaid:part` 2) Horn adds 37 rules for the requirements that only exist in ISO 14289-2 — PDF 2.0 namespaces, structure destinations, annotation artifacts, `pdfuaid:rev` — using interim `ua2:<clause>-<test>` ids until the Matterhorn Protocol 2.0 is published. See the [checks reference](/reference/checks#pdf-ua-2-iso-14289-2-rules).
 
 Run `horn list-checks` to see all registered checks.
 

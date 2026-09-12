@@ -88,7 +88,7 @@ features:
       <div class="label">PDFs / second</div>
     </div>
     <div class="benchmark-stat">
-      <div class="number">25</div>
+      <div class="number">29</div>
       <div class="label">check modules</div>
     </div>
     <div class="benchmark-stat">
