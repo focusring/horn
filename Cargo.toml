@@ -5,7 +5,7 @@ members = [".", "horn-gui", "horn-wasm", "horn-desktop/src-tauri"]
 # Bump it here (or via `cargo release`); scripts/sync-version.sh propagates it
 # to the non-Cargo files (tauri.conf.json, docs/package.json, GUI footers).
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 
 [package]
 name = "horn"

@@ -1959,7 +1959,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "horn"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "horn-desktop"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "horn",
  "serde",
@@ -1993,7 +1993,7 @@ dependencies = [
 
 [[package]]
 name = "horn-gui"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "axum",
  "tokio",
@@ -2002,7 +2002,7 @@ dependencies = [
 
 [[package]]
 name = "horn-wasm"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "getrandom 0.3.4",
  "getrandom 0.4.3",
